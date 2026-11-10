@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "يأت بها",
+    "slug": "yat-biha",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "yat-biha",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {},
+    "web": {
+      "favicon": "./assets/images/icon.png",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "يحتاج يأتِ بها للوصول إلى صورك لإرفاق صورة بالبلاغ.",
+          "cameraPermission": "يحتاج يأتِ بها للكاميرا لتصوير الغرض المفقود أو المعثور عليه."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "splash": {
+      "image": "./assets/images/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#EEF6F7"
+    }
+  }
+}
