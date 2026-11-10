@@ -15,7 +15,6 @@ export default function Home() {
   const { all, mine, loading, loadError, retryLoad } = useReports();
   const open = all.filter((r) => r.status === 'open');
   const recent = [...open].sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt)).slice(0, 5);
-  const returned = all.filter((r) => r.status === 'returned').length;
 
   return (
     <TabScreen>
@@ -68,9 +67,9 @@ export default function Home() {
 
       <View style={{ flexDirection: ROW, gap: 10, marginTop: 14 }}>
         {[
-          { n: open.length, l: 'بلاغ مفتوح', col: c.turquoise },
+          { n: open.filter((r) => !r.demo).length, l: 'بلاغ مفتوح', col: c.turquoise },
           { n: mine.length, l: 'بلاغاتك', col: c.magenta },
-          { n: returned, l: 'أُعيد لصاحبه', col: c.success },
+          { n: all.filter((r) => !r.demo && r.status === 'returned').length, l: 'مُعاد يدوياً', col: c.success },
         ].map((s) => (
           <View key={s.l} style={[styles.stat, { backgroundColor: c.card, borderColor: c.border }]}>
             <T w="bold" size={24} color={s.col} style={{ lineHeight: 32 }}>
@@ -115,7 +114,7 @@ export default function Home() {
       </View>
 
       <T size={12} color={c.mutedForeground} center style={{ marginTop: 18 }}>
-        البلاغات المعلّمة «مثال توضيحي» للعرض فقط. بلاغاتك محفوظة على جهازك فقط ولا تُنشر.
+        البلاغات المشتركة يراها الجميع. «مثال توضيحي» للعرض فقط، والبلاغات القديمة تبقى محلية حتى تختار نشر نسخة.
       </T>
     </TabScreen>
   );

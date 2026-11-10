@@ -6,6 +6,9 @@ import { useColors } from '@/hooks/useColors';
 import { useReports } from '@/context/ReportsContext';
 import { TabScreen } from '@/components/Screen';
 import { Button, ErrorBox, haptic, ROW, T } from '@/components/ui';
+import { useAuth, useClerk } from '@clerk/expo';
+import { router } from 'expo-router';
+import { useGetCommunityAccount, deleteCommunityAccount } from '@workspace/api-client-react';
 
 function Card({ icon, title, children }: { icon: keyof typeof Feather.glyphMap; title: string; children: React.ReactNode }) {
   const c = useColors();
@@ -28,6 +31,20 @@ export default function Settings() {
   const c = useColors();
   const { showDemo, setShowDemo, clearAll, mine, saved } = useReports();
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { isSignedIn, userId } = useAuth();
+  const { signOut } = useClerk();
+  const account = useGetCommunityAccount({ query: { enabled: !!isSignedIn, queryKey: ['/api/me', userId] } });
+  const deleteAccount = () => {
+    const message = 'سيُحذف حسابك وبلاغاتك المشتركة وصورك وطلباتك ورسائلك نهائياً. لا يمكن التراجع. تبقى المسودات المحلية حتى تمسحها.';
+    const go = async () => {
+      setBusy(true); setErr(null);
+      try { await deleteCommunityAccount(); await signOut(); router.replace('/'); }
+      catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+    };
+    if (Platform.OS === 'web') { if (window.confirm(message)) void go(); }
+    else Alert.alert('حذف الحساب نهائياً؟', message, [{ text: 'إلغاء', style: 'cancel' }, { text: 'حذف', style: 'destructive', onPress: go }]);
+  };
 
   const doClear = async () => {
     try {
@@ -41,7 +58,7 @@ export default function Settings() {
   };
   const confirmClear = () => {
     haptic.warn();
-    const msg = `سيتم حذف ${mine.length} بلاغ و${saved.length} عنصر محفوظ من هذا الجهاز نهائياً.`;
+    const msg = `سيتم حذف ${mine.filter((r) => r.local).length} بلاغ محلي و${saved.length} عنصر محفوظ من هذا الجهاز نهائياً. لن تُحذف البلاغات المشتركة.`;
     if (Platform.OS === 'web') {
       if (window.confirm(msg)) doClear();
       return;
@@ -60,11 +77,19 @@ export default function Settings() {
           يأتِ بها
         </T>
         <T size={12} color={c.mutedForeground} center>
-          الإصدار 1.0 · نسخة أولى تعمل على الجهاز
+          مجتمع المفقودات والمعثورات
         </T>
       </View>
 
       {err ? <ErrorBox message={err} /> : null}
+      <Card icon="user" title="حسابك">
+        {isSignedIn ? <>
+          <Button label="طلبات الملكية والتواصل" onPress={() => router.push('/claims')} />
+          {account.data?.isModerator ? <Button label="مراجعة المحتوى" variant="soft" onPress={() => router.push('/moderation')} /> : null}
+          <Button label="تسجيل الخروج" variant="ghost" onPress={() => signOut().then(() => router.replace('/')).catch((e) => setErr(e.message))} />
+          <Button label="حذف الحساب والبيانات المشتركة نهائياً" variant="ghost" loading={busy} onPress={deleteAccount} testID="delete-account" />
+        </> : <Button label="تسجيل الدخول أو إنشاء حساب" onPress={() => router.push('/sign-in')} />}
+      </Card>
 
       <Card icon="eye" title="الأمثلة التوضيحية">
         <View style={{ flexDirection: ROW, alignItems: 'center', gap: 12 }}>
@@ -85,7 +110,7 @@ export default function Settings() {
 
       <Card icon="lock" title="الخصوصية">
         <T size={13} color={c.mutedForeground}>
-          كل ما تسجّله يُحفظ على جهازك فقط باستخدام التخزين المحلي. لا يوجد حساب ولا خادم ولا نشر عام ولا مراسلة داخل التطبيق. الصور تبقى على جهازك. لا تكتب أرقام هويات أو هواتف في البلاغ.
+          البلاغات الجديدة وصورها عامة ومحفوظة على الخادم. البريد والهوية لا يظهران للعامة. أدلة الطلب خاصة بمقدم الطلب وصاحب البلاغ؛ يراجع المشرفون الرسائل قبل وصولها وشكاوى الإساءة. القبول ليس توثيق ملكية. البلاغات القديمة والمحـفوظات تبقى على هذا الجهاز. يمكنك حذف بلاغك أو سحب طلبك أو حذف حسابك. لا تكتب أرقام هويات أو هواتف ولا ترفع وثائق أو وجوهاً.
         </T>
       </Card>
 
@@ -111,7 +136,7 @@ export default function Settings() {
         </T>
       </Card>
 
-      <Button label="مسح كل بياناتي من الجهاز" icon="trash-2" variant="ghost" onPress={confirmClear} testID="clear-all" />
+      <Button label="مسح البلاغات المحلية والمحـفوظات فقط" icon="trash-2" variant="ghost" onPress={confirmClear} testID="clear-all" />
     </TabScreen>
   );
 }

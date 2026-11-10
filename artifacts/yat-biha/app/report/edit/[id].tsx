@@ -8,10 +8,11 @@ export default function EditReport() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { getReport, updateReport } = useReports();
   const r = getReport(id);
-  if (!r || r.demo) return <Empty icon="alert-circle" title="لا يمكن التعديل" body="هذا البلاغ غير موجود أو أنه مثال توضيحي." />;
+  if (!r || !r.isOwner) return <Empty icon="alert-circle" title="لا يمكن التعديل" body="يمكن لصاحب البلاغ فقط تعديله." />;
   return (
     <ReportForm
       initial={r}
+      localOnly={r.local}
       submitLabel="حفظ التعديلات"
       onSubmit={async (v) => {
         await updateReport(r.id, v);

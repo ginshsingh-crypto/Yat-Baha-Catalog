@@ -161,6 +161,7 @@ export function ReportCard({ report, index = 0 }: { report: Report; index?: numb
           <View style={{ flexDirection: ROW, gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <TypeBadge type={report.type} small />
             {report.demo ? <DemoTag /> : null}
+            {report.local ? <T size={11}>على جهازك فقط</T> : !report.demo ? <T size={11}>بلاغ مشترك</T> : null}
             {returned ? (
               <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: c.successSoft }}>
                 <T w="semibold" size={11} color={c.success}>

@@ -18,7 +18,7 @@ const shift = (n: number) => new Date(Date.now() - n * 86400000).toISOString().s
 
 type Errors = Partial<Record<'title' | 'category' | 'description' | 'city' | 'place' | 'date', string>>;
 
-export function ReportForm({ initial, submitLabel, onSubmit }: { initial: Partial<ReportInput>; submitLabel: string; onSubmit: (v: ReportInput) => Promise<void> }) {
+export function ReportForm({ initial, submitLabel, onSubmit, localOnly = false }: { initial: Partial<ReportInput>; submitLabel: string; onSubmit: (v: ReportInput) => Promise<void>; localOnly?: boolean }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const [type, setType] = useState<ReportType>(initial.type ?? 'lost');
@@ -205,7 +205,7 @@ export function ReportForm({ initial, submitLabel, onSubmit }: { initial: Partia
       ) : null}
       <Button testID="submit" label={submitLabel} icon="check" onPress={submit} loading={saving} style={{ marginTop: 20 }} />
       <T size={12} color={c.mutedForeground} center style={{ marginTop: 10 }}>
-        يُحفظ على هذا الجهاز فقط، ولن يُنشر أو يُرسل لأي أحد.
+        {localOnly ? 'يُحفظ هذا البلاغ القديم على جهازك فقط حتى تختار نشر نسخة.' : 'بالنشر يصبح الوصف والمكان التقريبي والصورة مرئيين للجميع. لا تنشر وثائق أو وجوهاً أو بيانات اتصال. نزيل بيانات موقع الصورة.'}
       </T>
     </KeyboardAwareScrollViewCompat>
   );

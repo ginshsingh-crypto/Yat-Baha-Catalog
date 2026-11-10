@@ -8,12 +8,13 @@ import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
 import { useColors } from '@/hooks/useColors';
 import { categoryOf, findMatches, useReports } from '@/context/ReportsContext';
 import { Button, DemoTag, Empty, ErrorBox, haptic, ReportCard, ROW, T, Thumb, TypeBadge, relDate } from '@/components/ui';
+import { CommunityActions } from '@/components/CommunityActions';
 
 export default function ReportDetails() {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getReport, all, saved, toggleSaved, updateReport, deleteReport, loading } = useReports();
+  const { getReport, all, saved, toggleSaved, updateReport, deleteReport, loading, publishLocal } = useReports();
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<boolean>(false);
   const r = getReport(id);
@@ -30,7 +31,7 @@ export default function ReportDetails() {
   const cat = categoryOf(r.category);
   const matches = findMatches(r, all);
   const isSaved = saved.includes(r.id);
-  const own = !r.demo;
+  const own = !!r.isOwner;
   const lost = r.type === 'lost';
 
   const run = async (fn: () => Promise<void>, ok?: () => void) => {
@@ -59,21 +60,21 @@ export default function ReportDetails() {
       deleteReport(r.id)
         .then(() => {
           haptic.success();
-          router.back();
+          router.replace('/mine');
         })
         .catch((e: Error) => {
           // Report may already be gone from state (partial cleanup), so surface outside the screen body.
           haptic.error();
           if (Platform.OS === 'web') window.alert(e.message);
           else Alert.alert('تنبيه', e.message);
-          if (!getReport(r.id)) router.back();
+          if (!getReport(r.id)) router.replace('/mine');
           else setErr(e.message);
         });
     if (Platform.OS === 'web') {
-      if (window.confirm('حذف هذا البلاغ نهائياً من جهازك؟')) go();
+      if (window.confirm(r.local ? 'حذف هذا البلاغ المحلي نهائياً؟' : 'حذف البلاغ المشترك وصورته وطلباته ورسائله نهائياً للجميع؟')) go();
       return;
     }
-    Alert.alert('حذف البلاغ؟', 'سيُحذف نهائياً من هذا الجهاز ولا يمكن التراجع.', [
+    Alert.alert('حذف البلاغ؟', r.local ? 'سيُحذف البلاغ المحلي نهائياً.' : 'سيُحذف البلاغ المشترك وصورته وطلباته ورسائله نهائياً للجميع.', [
       { text: 'إلغاء', style: 'cancel' },
       { text: 'حذف', style: 'destructive', onPress: go },
     ]);
@@ -139,6 +140,11 @@ export default function ReportDetails() {
           </T>
         </View>
       ) : null}
+      {r.local ? <View style={{ marginTop: 16, gap: 10 }}>
+        <T size={13}>بلاغ قديم على هذا الجهاز فقط. نشر نسخة يجعله وصورته مرئيين للجميع، ولا يحذف الأصل المحلي.</T>
+        <Button label="نشر نسخة للمجتمع" loading={busy} onPress={() => run(async () => { const published = await publishLocal!(r.id); router.replace(`/report/${published.id}`); })} />
+      </View> : null}
+      <CommunityActions report={r} />
 
       {err ? (
         <View style={{ marginTop: 16 }}>
@@ -171,7 +177,7 @@ export default function ReportDetails() {
         </T>
       </View>
       {matches.length === 0 ? (
-        <Empty icon="radio" title="لا مطابقات حالياً" body="سنقارن تلقائياً كلما أُضيف بلاغ جديد على هذا الجهاز. عد لاحقاً." />
+        <Empty icon="radio" title="لا مطابقات حالياً" body="نقارن البلاغات المشتركة دورياً. الأمثلة والبلاغات المحلية تُقارن في مجموعاتها المنفصلة فقط." />
       ) : (
         matches.map((m, i) => <ReportCard key={m.id} report={m} index={i} />)
       )}

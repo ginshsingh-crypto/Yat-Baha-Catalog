@@ -1,5 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '@clerk/expo';
+import { useQueryClient } from '@tanstack/react-query';
+import { useListReports, createReport as createShared, updateReport as updateShared, deleteReport as deleteShared, requestPhotoUpload } from '@workspace/api-client-react';
 
 export type ReportType = 'lost' | 'found';
 export type ReportStatus = 'open' | 'returned';
@@ -18,6 +21,10 @@ export interface Report {
   createdAt: number;
   updatedAt: number;
   demo?: boolean;
+  local?: boolean;
+  isOwner?: boolean;
+  hidden?: boolean;
+  photoId?: string | null;
 }
 
 export type ReportInput = Omit<Report, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'demo'>;
@@ -57,7 +64,7 @@ export const DEMO_REPORTS: Report[] = [
 /** Possible match: opposite type, same category, same city, still open. Never a verification. */
 export function findMatches(target: Report, all: Report[]): Report[] {
   return all
-    .filter((r) => r.id !== target.id && r.type !== target.type && r.category === target.category && r.city === target.city && r.status === 'open')
+    .filter((r) => !!r.demo === !!target.demo && !!r.local === !!target.local && !r.hidden && r.id !== target.id && r.type !== target.type && r.category === target.category && r.city === target.city && r.status === 'open')
     .sort((a, b) => Math.abs(+new Date(a.date) - +new Date(target.date)) - Math.abs(+new Date(b.date) - +new Date(target.date)));
 }
 
@@ -128,14 +135,15 @@ interface Ctx {
   deleteReport: (id: string) => Promise<void>;
   toggleSaved: (id: string) => Promise<void>;
   clearAll: () => Promise<void>;
+  publishLocal?: (id: string) => Promise<Report>;
 }
 
 const ReportsContext = createContext<Ctx | null>(null);
 
-export function ReportsProvider({ children }: { children: React.ReactNode }) {
+function LocalReportsProvider({ children }: { children: React.ReactNode }) {
   const [mine, setMine] = useState<Report[]>([]);
   const [saved, setSaved] = useState<string[]>([]);
-  const [showDemo, setShowDemoState] = useState<boolean>(true);
+  const [showDemo, setShowDemoState] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [nonce, setNonce] = useState<number>(0);
@@ -151,7 +159,7 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
         if (!alive) return;
         setMine(reports);
         setSaved(s ? (JSON.parse(s) as string[]) : []);
-        setShowDemoState(dm === null ? true : dm === '1');
+        setShowDemoState(dm === null ? false : dm === '1');
         if (warning) setLoadError(warning);
       } catch {
         if (alive) setLoadError('تعذّر قراءة البيانات المحفوظة على هذا الجهاز.');
@@ -273,4 +281,68 @@ export function useReports() {
   const c = useContext(ReportsContext);
   if (!c) throw new Error('useReports must be used within ReportsProvider');
   return c;
+}
+
+export function ReportsProvider({ children }: { children: React.ReactNode }) {
+  return <LocalReportsProvider><CommunityReportsProvider>{children}</CommunityReportsProvider></LocalReportsProvider>;
+}
+
+function CommunityReportsProvider({ children }: { children: React.ReactNode }) {
+  const local = useReports();
+  const { userId, isLoaded, isSignedIn } = useAuth();
+  const queryClient = useQueryClient();
+  const query = useListReports({ query: { queryKey: ['/api/reports', userId ?? 'guest'], enabled: isLoaded, refetchInterval: 15000 } });
+  const refresh = async () => { await queryClient.invalidateQueries({ queryKey: ['/api/reports'] }); };
+  const shared: Report[] = (query.data ?? []).map((r) => ({
+    ...r, photoUri: r.photoId ? `${process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : ''}/api/photos/${r.photoId}` : undefined,
+  }));
+  const localMine = local.mine.map((r) => ({ ...r, local: true, isOwner: true }));
+  const all = [...shared.filter((r) => !r.hidden), ...localMine, ...(local.showDemo ? DEMO_REPORTS : [])];
+  const mine = [...shared.filter((r) => r.isOwner), ...localMine];
+  async function photoId(input: Partial<Report>) {
+    if (!input.photoUri) return null;
+    if (input.photoId && !input.photoUri.startsWith('data:')) return input.photoId;
+    if (!input.photoUri.startsWith('data:')) throw new Error('اختر الصورة من جديد قبل النشر.');
+    const blob = await (await fetch(input.photoUri)).blob();
+    const upload = await requestPhotoUpload({ size: blob.size });
+    const response = await fetch(upload.uploadUrl, { method: 'PUT', body: blob, headers: { 'Content-Type': blob.type } });
+    if (!response.ok) throw new Error('تعذّر رفع الصورة. لم يُنشر البلاغ.');
+    return upload.photoId;
+  }
+  async function createReport(input: ReportInput): Promise<Report> {
+    if (!isSignedIn) throw new Error('سجّل الدخول أولاً لنشر البلاغ.');
+    const { type, title, category, description, city, place, date } = input;
+    const r = await createShared({ type, title, category: category as Parameters<typeof createShared>[0]['category'], description, city, place, date, photoId: await photoId(input) });
+    await refresh();
+    return { ...r, photoUri: r.photoId ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api/photos/${r.photoId}` : undefined };
+  }
+  const value: Ctx = {
+    ...local, all, mine,
+    loading: local.loading || query.isLoading,
+    loadError: query.error ? 'تعذّر تحميل البلاغات المشتركة. تحقق من الاتصال وحاول مجدداً.' : local.loadError,
+    retryLoad: () => { local.retryLoad(); void query.refetch(); },
+    getReport: (id) => shared.find((r) => r.id === id) ?? localMine.find((r) => r.id === id) ?? (local.showDemo ? DEMO_REPORTS.find((r) => r.id === id) : undefined),
+    createReport,
+    updateReport: async (id, input) => {
+      if (localMine.some((r) => r.id === id)) return local.updateReport(id, input);
+      const current = shared.find((r) => r.id === id);
+      if (!current?.isOwner) throw new Error('لا يمكنك تعديل هذا البلاغ.');
+      const { type, title, category, description, city, place, date, status } = input;
+      await updateShared(id, { type, title, category: category as Parameters<typeof updateShared>[1]['category'], description, city, place, date, status,
+        ...('photoUri' in input ? { photoId: await photoId({ ...input, photoId: current.photoId }) } : {}) });
+      await refresh();
+    },
+    deleteReport: async (id) => {
+      if (localMine.some((r) => r.id === id)) return local.deleteReport(id);
+      await deleteShared(id);
+      await refresh();
+    },
+    publishLocal: async (id) => {
+      const r = localMine.find((r) => r.id === id);
+      if (!r) throw new Error('البلاغ المحلي غير موجود.');
+      // Keep the private original; publishing is explicit and never migrates silently.
+      return createReport(r);
+    },
+  };
+  return <ReportsContext.Provider value={value}>{children}</ReportsContext.Provider>;
 }

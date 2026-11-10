@@ -1,1 +1,2 @@
 - [Product scope](product-scope.md) — User chose lost-and-found first for يأت بها, with Android and iOS as priorities.
+- [Community safety](community-safety.md) — Legacy publication needs explicit consent; contact acceptance never verifies ownership.

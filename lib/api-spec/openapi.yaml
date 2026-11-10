@@ -11,6 +11,186 @@ tags:
   - name: health
     description: Health operations
 paths:
+  /reports:
+    get:
+      operationId: listReports
+      responses:
+        "200":
+          description: Shared reports, including own hidden reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Report" }
+    post:
+      operationId: createReport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Report" }
+  /reports/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: updateReport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportUpdate" }
+      responses:
+        "200":
+          description: Updated by owner
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Report" }
+    delete:
+      operationId: deleteReport
+      responses:
+        "204": { description: Deleted by owner }
+  /photos:
+    post:
+      operationId: requestPhotoUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PhotoInput" }
+      responses:
+        "201":
+          description: Upload bytes directly to URL then attach photoId to report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PhotoUpload" }
+  /photos/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getPhoto
+      responses:
+        "200":
+          description: Sanitized JPEG for a visible report
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+  /claims:
+    get:
+      operationId: listClaims
+      responses:
+        "200":
+          description: Only the caller's incoming and outgoing claims
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Claim" }
+    post:
+      operationId: createClaim
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClaimInput" }
+      responses:
+        "201":
+          description: Private evidence submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Claim" }
+  /claims/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: decideClaim
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClaimDecision" }
+      responses:
+        "204": { description: Owner accepted or rejected; not verified identity }
+    delete:
+      operationId: withdrawClaim
+      responses:
+        "204": { description: Claimant withdrew evidence and messages }
+  /claims/{id}/messages:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: listMessages
+      responses:
+        "200":
+          description: Approved messages and caller's own pending messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Message" }
+    post:
+      operationId: sendMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MessageInput" }
+      responses:
+        "201":
+          description: Queued for moderator approval, not delivered yet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
+  /reports/{id}/abuse:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: reportAbuse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AbuseInput" }
+      responses:
+        "204": { description: Submitted to moderators }
+  /me:
+    get:
+      operationId: getCommunityAccount
+      responses:
+        "200":
+          description: Current account capabilities
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+    delete:
+      operationId: deleteCommunityAccount
+      responses:
+        "204": { description: Account and associated community data deleted }
+  /moderation:
+    get:
+      operationId: listModeration
+      responses:
+        "200":
+          description: Moderator-only queue
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ModerationItem" }
+    post:
+      operationId: moderateItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModerationDecision" }
+      responses:
+        "204": { description: Moderated }
   /healthz:
     get:
       operationId: healthCheck
@@ -26,6 +206,117 @@ paths:
                 $ref: "#/components/schemas/HealthStatus"
 components:
   schemas:
+    ReportInput:
+      type: object
+      additionalProperties: false
+      required: [type, title, category, description, city, place, date]
+      properties:
+        type: { type: string, enum: [lost, found] }
+        title: { type: string, minLength: 3, maxLength: 60 }
+        category: { type: string, enum: [wallet, phone, keys, bag, docs, jewelry, electronics, pet, other] }
+        description: { type: string, minLength: 10, maxLength: 400 }
+        city: { type: string, minLength: 2, maxLength: 60 }
+        place: { type: string, minLength: 3, maxLength: 80 }
+        date: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        photoId: { type: [string, "null"] }
+    ReportUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        type: { type: string, enum: [lost, found] }
+        title: { type: string, minLength: 3, maxLength: 60 }
+        category: { type: string, enum: [wallet, phone, keys, bag, docs, jewelry, electronics, pet, other] }
+        description: { type: string, minLength: 10, maxLength: 400 }
+        city: { type: string, minLength: 2, maxLength: 60 }
+        place: { type: string, minLength: 3, maxLength: 80 }
+        date: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        photoId: { type: [string, "null"] }
+        status: { type: string, enum: [open, returned] }
+    Report:
+      allOf:
+        - $ref: "#/components/schemas/ReportInput"
+        - type: object
+          required: [id, isOwner, status, hidden, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            isOwner: { type: boolean }
+            hidden: { type: boolean }
+            status: { type: string, enum: [open, returned] }
+            createdAt: { type: number }
+            updatedAt: { type: number }
+    PhotoInput:
+      type: object
+      required: [size]
+      properties:
+        size: { type: integer, minimum: 1, maximum: 6000000 }
+    PhotoUpload:
+      type: object
+      required: [photoId, uploadUrl]
+      properties:
+        photoId: { type: string }
+        uploadUrl: { type: string }
+    ClaimInput:
+      type: object
+      required: [reportId, evidence]
+      properties:
+        reportId: { type: string }
+        evidence: { type: string, minLength: 10, maxLength: 500 }
+    Claim:
+      type: object
+      required: [id, reportId, reportTitle, evidence, status, incoming, createdAt]
+      properties:
+        id: { type: string }
+        reportId: { type: string }
+        reportTitle: { type: string }
+        evidence: { type: string }
+        status: { type: string, enum: [pending, accepted, rejected] }
+        incoming: { type: boolean }
+        createdAt: { type: number }
+    ClaimDecision:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [accepted, rejected] }
+    MessageInput:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 2, maxLength: 500 }
+    Message:
+      type: object
+      required: [id, body, status, mine, createdAt]
+      properties:
+        id: { type: string }
+        body: { type: string }
+        status: { type: string, enum: [pending, approved, rejected] }
+        mine: { type: boolean }
+        createdAt: { type: number }
+    AbuseInput:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 5, maxLength: 500 }
+    Account:
+      type: object
+      required: [isModerator]
+      properties:
+        isModerator: { type: boolean }
+    ModerationItem:
+      type: object
+      required: [id, kind, text, reportId, reportTitle]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [message, abuse] }
+        text: { type: string }
+        reportId: { type: string }
+        reportTitle: { type: string }
+    ModerationDecision:
+      type: object
+      required: [id, kind, approve]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [message, abuse] }
+        approve: { type: boolean, description: "For abuse: true hides report; false dismisses abuse." }
     HealthStatus:
       type: object
       properties:

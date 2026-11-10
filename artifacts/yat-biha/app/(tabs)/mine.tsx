@@ -12,7 +12,7 @@ export default function Mine() {
   const [tab, setTab] = useState<'open' | 'returned'>('open');
   const list = mine.filter((r) => r.status === tab);
   return (
-    <TabScreen title="بلاغاتي" subtitle="محفوظة على هذا الجهاز فقط، ولا تُنشر لأي أحد">
+    <TabScreen title="بلاغاتي" subtitle="بلاغات حسابك المشتركة، والبلاغات القديمة المعلّمة على جهازك فقط">
       <View style={{ flexDirection: ROW, gap: 8, marginBottom: 14, alignItems: 'center' }}>
         <Chip label={`مفتوحة (${mine.filter((r) => r.status === 'open').length})`} active={tab === 'open'} onPress={() => setTab('open')} />
         <Chip label={`أُعيدت (${mine.filter((r) => r.status === 'returned').length})`} active={tab === 'returned'} tone={c.success} onPress={() => setTab('returned')} />
