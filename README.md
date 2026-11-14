@@ -63,3 +63,5 @@ The partnership brief describes further community services and proposed collabor
 Run `pnpm test:app` for behavior tests. The GitHub workflows run these tests alongside TypeScript, export checks, and isolated API checks. See [offline behavior](docs/offline.md) for first-load, update and browser-storage limits. The preview is not a signed store release.
 
 ![Arabic app preview](docs/preview.jpg)
+
+[View the phone layout](docs/preview-mobile.jpg)

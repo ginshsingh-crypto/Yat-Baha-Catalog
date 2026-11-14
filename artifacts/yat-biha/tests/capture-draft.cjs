@@ -12,10 +12,31 @@ const root = path.resolve(__dirname, '..');
 const data = new Map([['yat-biha.local.capture.v1.new', 'PRODUCTION_SENTINEL']]);
 let fail = false;
 let failReads = false;
+const platform = { OS: 'web' };
+function eventTarget() {
+  const events = new Map();
+  return {
+    addEventListener(event, listener) { if (!events.has(event)) events.set(event, new Set()); events.get(event).add(listener); },
+    removeEventListener(event, listener) { events.get(event)?.delete(listener); },
+    emit(event, value) { for (const listener of events.get(event) ?? []) listener(value); },
+    count(event) { return events.get(event)?.size ?? 0; },
+  };
+}
+const webWindow = eventTarget();
+const webDocument = { ...eventTarget(), visibilityState: 'visible' };
+const nativeEvents = eventTarget();
+global.window = webWindow;
+global.document = webDocument;
+const native = {
+  Platform: platform,
+  AppState: { addEventListener(event, listener) { nativeEvents.addEventListener(event, listener); return { remove() { nativeEvents.removeEventListener(event, listener); } }; } },
+};
 const pause = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 const storage = {
   async getItem(key) { await pause(); if (failReads) throw Error('read failed'); return data.get(key) ?? null; },
-  async setItem(key, value) { await pause(); if (fail) throw Error('quota'); data.set(key, value); },
+  // Match the installed web adapter: its write occurs synchronously before
+  // returning a Promise. Native writes remain asynchronous for queue tests.
+  async setItem(key, value) { if (platform.OS !== 'web') await pause(); if (fail) throw Error('quota'); data.set(key, value); },
   async removeItem(key) { await pause(); data.delete(key); },
 };
 function load(file, imports) {
@@ -25,7 +46,7 @@ function load(file, imports) {
   return m.exports;
 }
 const utils = load('utils/reportCapture.ts', {});
-const { useCaptureDraft } = load('hooks/useCaptureDraft.ts', { react: React, '@react-native-async-storage/async-storage': storage, '@/config/runtime': { IS_PREVIEW: true }, '@/utils/reportCapture': utils });
+const { useCaptureDraft } = load('hooks/useCaptureDraft.ts', { react: React, 'react-native': native, '@react-native-async-storage/async-storage': storage, '@/config/runtime': { IS_PREVIEW: true }, '@/utils/reportCapture': utils });
 const base = { type: 'lost', title: '', category: '', description: '', city: '', place: '', date: '2026-11-14' };
 const key = 'yat-biha.preview.capture.v1.new';
 let current = base;
@@ -44,7 +65,24 @@ async function unmount() { await act(async () => { renderer.unmount(); }); await
   await act(async () => { await pause(500); });
   assert.equal(state.status, 'saved');
   assert.equal(JSON.parse(data.get(key)).value.title, 'محفظة بنية');
+  await change({ ...base, title: 'typed immediately before reload' });
+  assert.equal(state.status, 'saving', 'latest edits cannot show an older saved acknowledgement');
+  await act(async () => {
+    webWindow.emit('pagehide');
+    assert.equal(JSON.parse(data.get(key)).value.title, 'typed immediately before reload', 'pagehide writes the latest edit before the event returns');
+  });
+  await act(async () => { await pause(500); });
+  assert.equal(JSON.parse(data.get(key)).value.title, 'typed immediately before reload', 'obsolete debounce writes cannot regress the lifecycle flush');
+  await change({ ...base, title: 'محفظة بنية', description: 'وصف الغرض' });
+  await act(async () => {
+    webDocument.visibilityState = 'hidden';
+    webDocument.emit('visibilitychange');
+    assert.equal(JSON.parse(data.get(key)).value.title, 'محفظة بنية', 'hiding the page flushes before suspension');
+    webDocument.visibilityState = 'visible';
+  });
   await unmount();
+  assert.equal(webWindow.count('pagehide'), 0, 'unmount removes browser lifecycle listeners');
+  assert.equal(webDocument.count('visibilitychange'), 0);
   current = base;
   await mount();
   assert.equal(state.resolved, false);
@@ -80,6 +118,7 @@ async function unmount() { await act(async () => { renderer.unmount(); }); await
   assert.equal(state.hydrationError, 'read');
   assert.equal(state.resolved, false);
   await change({ ...base, title: 'new edits while read is failing' });
+  await act(async () => { webWindow.emit('pagehide'); });
   await act(async () => { await pause(500); });
   assert.equal(data.get(key), preservedDraft, 'autosave cannot overwrite a draft it could not read');
   failReads = false;
@@ -95,6 +134,7 @@ async function unmount() { await act(async () => { renderer.unmount(); }); await
   await mount();
   await change({ ...base, title: 'a separately submitted new report' });
   await act(async () => { await state.finish(); });
+  await act(async () => { webWindow.emit('pagehide'); });
   await unmount();
   assert.equal(data.get(key), preservedDraft, 'successful submit cannot delete an unread older draft');
   failReads = false;
@@ -106,6 +146,7 @@ async function unmount() { await act(async () => { renderer.unmount(); }); await
   assert.equal(state.hydrationError, 'corrupt');
   assert.equal(state.resolved, false);
   await change({ ...base, title: 'new data alongside malformed draft' });
+  await act(async () => { webDocument.visibilityState = 'hidden'; webDocument.emit('visibilitychange'); webDocument.visibilityState = 'visible'; });
   await act(async () => { await pause(500); });
   assert.equal(data.get(key), corrupt, 'malformed drafts are protected from implicit replacement');
   await unmount();
@@ -120,6 +161,19 @@ async function unmount() { await act(async () => { renderer.unmount(); }); await
   assert.equal(JSON.parse(data.get(key)).value.title, 'explicit replacement', 'explicit deletion unblocks autosave for the new draft');
   await act(async () => { await state.finish(); });
   await unmount();
+  platform.OS = 'ios';
+  current = base;
+  await mount();
+  await change({ ...base, title: 'native background edit' });
+  assert.equal(state.status, 'saving');
+  await act(async () => { nativeEvents.emit('change', 'background'); await pause(30); });
+  assert.equal(JSON.parse(data.get(key)).value.title, 'native background edit', 'native background transitions flush before the debounce');
+  await change({ ...base, title: 'native inactive edit' });
+  await act(async () => { nativeEvents.emit('change', 'inactive'); await pause(30); });
+  assert.equal(JSON.parse(data.get(key)).value.title, 'native inactive edit');
+  await act(async () => { await state.finish(); });
+  await unmount();
+  assert.equal(nativeEvents.count('change'), 0, 'unmount removes native lifecycle listener');
   assert.equal(data.get('yat-biha.local.capture.v1.new'), 'PRODUCTION_SENTINEL', 'preview storage remains isolated');
-  console.log('PASS draft lifecycle: restore choice, no blank overwrite, immediate unmount flush, photo-only draft, quota recovery, unread/corrupt draft protection, retry and explicit replacement, submit cleanup, preview isolation.');
+  console.log('PASS draft lifecycle: restore choice, no blank overwrite, immediate dirty status, web pagehide/visibility flush, native background flush, unmount cleanup, photo-only draft, quota recovery, unread/corrupt draft protection, retry and explicit replacement, submit cleanup, preview isolation.');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

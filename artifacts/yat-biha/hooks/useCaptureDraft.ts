@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { IS_PREVIEW } from '@/config/runtime';
 import type { ReportInput } from '@/context/ReportsContext';
@@ -19,24 +20,44 @@ export function useCaptureDraft(id: string, value: ReportInput, step: number) {
   const active = useRef(true);
   const permitted = useRef(false);
   const readGeneration = useRef(0);
+  const writeEpoch = useRef(0);
+  const savedContent = useRef<string | null>(null);
   const latest = useRef<CaptureDraft>({ version: 1, value, step, savedAt: Date.now() });
   latest.current = { version: 1, value, step, savedAt: Date.now() };
 
-  const save = useCallback((draft: CaptureDraft) => {
+  const save = useCallback((draft: CaptureDraft, synchronousWebFlush = false) => {
     if (done.current || !permitted.current) return queue.current;
+    // AsyncStorage's web adapter writes localStorage synchronously within
+    // setItem. Invoke it before pagehide returns, rather than enqueueing a
+    // promise callback that the browser may discard during navigation.
+    const epoch = synchronousWebFlush ? ++writeEpoch.current : writeEpoch.current;
+    const content = JSON.stringify({ value: draft.value, step: draft.step });
     if (active.current) setStatus('saving');
-    const next = queue.current.catch(() => {}).then(async () => {
-      if (done.current) return;
+    const write = async () => {
+      if (done.current || !permitted.current || epoch !== writeEpoch.current) return;
       await AsyncStorage.setItem(key, JSON.stringify(draft));
-      if (active.current) setStatus('saved');
-    });
+      if (epoch !== writeEpoch.current) return;
+      savedContent.current = content;
+      const currentContent = JSON.stringify({ value: latest.current.value, step: latest.current.step });
+      if (active.current) setStatus(content === currentContent ? 'saved' : 'saving');
+    };
+    const next = synchronousWebFlush ? write() : queue.current.catch(() => {}).then(write);
     queue.current = next;
-    void next.catch(() => { if (active.current) setStatus('error'); });
+    void next.catch(() => { if (active.current && epoch === writeEpoch.current) setStatus('error'); });
     return next;
   }, [key]);
 
+  const flushLatest = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    const last = latest.current.value;
+    if (!done.current && permitted.current && (last.title.trim() || last.description.trim() || last.photoUri || last.place.trim() || savedContent.current !== null)) {
+      void save(latest.current, Platform.OS === 'web').catch(() => {});
+    }
+  }, [save]);
+
   const retryHydration = useCallback(async () => {
     const generation = ++readGeneration.current;
+    writeEpoch.current++;
     permitted.current = false;
     setResolved(false);
     setHydrating(true);
@@ -77,17 +98,32 @@ export function useCaptureDraft(id: string, value: ReportInput, step: number) {
     return () => {
       readGeneration.current++;
       active.current = false;
-      if (timer.current) clearTimeout(timer.current);
-      const last = latest.current.value;
-      if (!done.current && permitted.current && (last.title.trim() || last.description.trim() || last.photoUri || last.place.trim())) void save(latest.current).catch(() => {});
+      flushLatest();
     };
-  }, [retryHydration, save]);
+  }, [retryHydration, flushLatest]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
+      const onVisibilityChange = () => { if (document.visibilityState === 'hidden') flushLatest(); };
+      window.addEventListener('pagehide', flushLatest);
+      document.addEventListener('visibilitychange', onVisibilityChange);
+      return () => {
+        window.removeEventListener('pagehide', flushLatest);
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      };
+    }
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'background' || next === 'inactive') flushLatest();
+    });
+    return () => subscription.remove();
+  }, [flushLatest]);
 
   const serialized = JSON.stringify({ value, step });
   useEffect(() => {
     if (!ready || !resolved || done.current) return;
     // Empty untouched forms do not create a restoration prompt.
-    if (!value.title.trim() && !value.description.trim() && !value.photoUri && !value.place.trim()) return;
+    if (!value.title.trim() && !value.description.trim() && !value.photoUri && !value.place.trim() && savedContent.current === null) return;
+    setStatus('saving');
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => { void save(latest.current).catch(() => {}); }, 450);
     return () => { if (timer.current) clearTimeout(timer.current); };
@@ -115,5 +151,8 @@ export function useCaptureDraft(id: string, value: ReportInput, step: number) {
     if (ownsStoredDraft) await AsyncStorage.removeItem(key).catch(() => {});
   }, [key]);
 
-  return { existing, ready, resolved, status, hydrationError, hydrating, retryHydration, restore, discard, finish };
+  // Rendering new text must never display a stale "saved" acknowledgement,
+  // even in the render before the debounce effect marks the edit pending.
+  const currentStatus = status === 'saved' && resolved && serialized !== savedContent.current ? 'saving' : status;
+  return { existing, ready, resolved, status: currentStatus, hydrationError, hydrating, retryHydration, restore, discard, finish };
 }
