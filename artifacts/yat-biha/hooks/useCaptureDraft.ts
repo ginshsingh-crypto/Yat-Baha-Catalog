@@ -22,8 +22,16 @@ export function useCaptureDraft(id: string, value: ReportInput, step: number) {
   const readGeneration = useRef(0);
   const writeEpoch = useRef(0);
   const savedContent = useRef<string | null>(null);
+  const stagedFields = useRef<Partial<ReportInput>>({});
+  const stagedStep = useRef<number | null>(null);
   const latest = useRef<CaptureDraft>({ version: 1, value, step, savedAt: Date.now() });
-  latest.current = { version: 1, value, step, savedAt: Date.now() };
+  // Input handlers can run before React commits their state updates. Retain
+  // their synchronous snapshot until the corresponding values reach render.
+  for (const field of Object.keys(stagedFields.current) as (keyof ReportInput)[]) {
+    if (Object.is(value[field], stagedFields.current[field])) delete stagedFields.current[field];
+  }
+  if (step === stagedStep.current) stagedStep.current = null;
+  latest.current = { version: 1, value: { ...value, ...stagedFields.current }, step: stagedStep.current ?? step, savedAt: Date.now() };
 
   const save = useCallback((draft: CaptureDraft, synchronousWebFlush = false) => {
     if (done.current || !permitted.current) return queue.current;
@@ -46,6 +54,19 @@ export function useCaptureDraft(id: string, value: ReportInput, step: number) {
     void next.catch(() => { if (active.current && epoch === writeEpoch.current) setStatus('error'); });
     return next;
   }, [key]);
+
+  const stageEdit = useCallback((patch: Partial<ReportInput>, nextStep?: number): ReportInput => {
+    stagedFields.current = { ...stagedFields.current, ...patch };
+    if (nextStep !== undefined) stagedStep.current = nextStep;
+    const nextValue = { ...latest.current.value, ...patch };
+    latest.current = { version: 1, value: nextValue, step: nextStep ?? latest.current.step, savedAt: Date.now() };
+    if (!done.current && permitted.current && (nextValue.title.trim() || nextValue.description.trim() || nextValue.photoUri || nextValue.place.trim() || savedContent.current !== null)) {
+      if (active.current) setStatus('saving');
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => { void save(latest.current).catch(() => {}); }, 450);
+    }
+    return nextValue;
+  }, [save]);
 
   const flushLatest = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -118,11 +139,12 @@ export function useCaptureDraft(id: string, value: ReportInput, step: number) {
     return () => subscription.remove();
   }, [flushLatest]);
 
-  const serialized = JSON.stringify({ value, step });
+  const serialized = JSON.stringify({ value: latest.current.value, step: latest.current.step });
   useEffect(() => {
     if (!ready || !resolved || done.current) return;
     // Empty untouched forms do not create a restoration prompt.
-    if (!value.title.trim() && !value.description.trim() && !value.photoUri && !value.place.trim() && savedContent.current === null) return;
+    const current = latest.current.value;
+    if (!current.title.trim() && !current.description.trim() && !current.photoUri && !current.place.trim() && savedContent.current === null) return;
     setStatus('saving');
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => { void save(latest.current).catch(() => {}); }, 450);
@@ -154,5 +176,5 @@ export function useCaptureDraft(id: string, value: ReportInput, step: number) {
   // Rendering new text must never display a stale "saved" acknowledgement,
   // even in the render before the debounce effect marks the edit pending.
   const currentStatus = status === 'saved' && resolved && serialized !== savedContent.current ? 'saving' : status;
-  return { existing, ready, resolved, status: currentStatus, hydrationError, hydrating, retryHydration, restore, discard, finish };
+  return { existing, ready, resolved, status: currentStatus, hydrationError, hydrating, retryHydration, stageEdit, restore, discard, finish };
 }

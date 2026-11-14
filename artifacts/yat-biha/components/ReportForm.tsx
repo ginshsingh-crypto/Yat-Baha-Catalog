@@ -47,7 +47,7 @@ export function ReportForm({ initial, submitLabel, onSubmit, localOnly = false, 
   const suggested = useMemo(() => categorySuggestion(`${value.title} ${value.description}`), [value.title, value.description]);
 
   function update<Key extends keyof ReportInput>(key: Key, next: ReportInput[Key]) {
-    setValue((previous) => ({ ...previous, [key]: next }));
+    setValue(draft.stageEdit({ [key]: next }));
     setErrors((previous) => ({ ...previous, [key]: undefined }));
     setReviewed(false);
     if (key === 'description') setColorError(null);
@@ -69,6 +69,7 @@ export function ReportForm({ initial, submitLabel, onSubmit, localOnly = false, 
       if (Object.keys(active).length) { haptic.error(); setScrollReset((current) => current + 1); return; }
     }
     haptic.tap();
+    draft.stageEdit({}, next);
     setStep(next);
   }
 
@@ -136,7 +137,7 @@ export function ReportForm({ initial, submitLabel, onSubmit, localOnly = false, 
         <T w="bold" size={26}>نكمّل من حيث توقّفت؟</T>
         <T color={c.mutedForeground}>لديك مسودة محفوظة على هذا الجهاز. لم تُنشر بعد.</T>
         <View style={{ backgroundColor: c.background, borderRadius: 14, padding: 14 }}><T w="semibold">{draft.existing.value.title || 'بلاغ بدون عنوان'}</T><T size={12} color={c.mutedForeground}>الخطوة {draft.existing.step + 1} من ٣ · {new Date(draft.existing.savedAt).toLocaleDateString('ar-SA')}</T></View>
-        <Button testID="draft-restore" label="متابعة المسودة" icon="arrow-left" onPress={() => { const saved = draft.existing!; setValue(saved.value); setStep(saved.step); draft.restore(); }} />
+        <Button testID="draft-restore" label="متابعة المسودة" icon="arrow-left" onPress={() => { const saved = draft.existing!; setValue(draft.stageEdit({ ...saved.value, photoUri: saved.value.photoUri }, saved.step)); setStep(saved.step); draft.restore(); }} />
         <Button testID="draft-discard" label="بدء بلاغ جديد" variant="ghost" onPress={() => { void draft.discard().catch(() => setSaveError('تعذّر حذف المسودة القديمة. حاول مجدداً.')); }} />
         {saveError ? <ErrorBox message={saveError} /> : null}
       </View>
@@ -184,7 +185,7 @@ export function ReportForm({ initial, submitLabel, onSubmit, localOnly = false, 
               {Platform.OS !== 'web' ? <Button label="تصوير" icon="camera" variant="ghost" onPress={() => { void pick(true); }} disabled={photoBusy} style={{ flex: 1 }} /> : null}
             </View>
             {photoMsg ? <T size={12} color={c.destructive} accessibilityLiveRegion="polite" style={{ marginTop: 8 }}>{photoMsg}</T> : null}
-            {!localOnly ? <PhotoAssist photoUri={value.photoUri} canFill={!value.title.trim() || !value.category.trim() || !value.description.trim()} onApply={(suggestion) => { setValue((previous) => fillCaptureSuggestion(previous, suggestion)); setReviewed(false); setErrors({}); }} /> : null}
+            {!localOnly ? <PhotoAssist photoUri={value.photoUri} canFill={!value.title.trim() || !value.category.trim() || !value.description.trim()} onApply={(suggestion) => { const current = draft.stageEdit({}); setValue(draft.stageEdit(fillCaptureSuggestion(current, suggestion))); setReviewed(false); setErrors({}); }} /> : null}
           </View>
 
           <View style={card}>

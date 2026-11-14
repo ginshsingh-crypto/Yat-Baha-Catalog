@@ -61,6 +61,25 @@ async function unmount() { await act(async () => { renderer.unmount(); }); await
   assert.equal(state.ready, true);
   assert.equal(state.resolved, true);
   assert.equal(data.has(key), false, 'untouched form has no empty draft');
+  // Deliberately do not update the component's value/step before pagehide.
+  // This is the event-handler -> navigation gap that awaited act() masked.
+  await act(async () => {
+    state.stageEdit({ title: 'pre-commit title' });
+    const staged = state.stageEdit({ description: 'pre-commit description' }, 1);
+    assert.equal(staged.title, 'pre-commit title', 'batched field events compose without a render');
+    webWindow.emit('pagehide');
+    const persisted = JSON.parse(data.get(key));
+    assert.equal(persisted.value.title, 'pre-commit title');
+    assert.equal(persisted.value.description, 'pre-commit description');
+    assert.equal(persisted.step, 1);
+  });
+  // A status-only render with old props must not erase staged input.
+  await act(async () => {
+    webWindow.emit('pagehide');
+    assert.equal(JSON.parse(data.get(key)).value.description, 'pre-commit description');
+    current = state.stageEdit({ ...base, photoUri: undefined }, 0);
+    renderer.update(React.createElement(Probe));
+  });
   await change({ ...base, title: 'محفظة بنية', description: 'وصف الغرض' });
   await act(async () => { await pause(500); });
   assert.equal(state.status, 'saved');
