@@ -11,6 +11,7 @@ export default function EditReport() {
   if (!r || !r.isOwner) return <Empty icon="alert-circle" title="لا يمكن التعديل" body="يمكن لصاحب البلاغ فقط تعديله." />;
   return (
     <ReportForm
+      draftId={`edit:${r.id}`}
       initial={r}
       localOnly={r.local}
       submitLabel="حفظ التعديلات"

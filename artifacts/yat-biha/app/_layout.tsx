@@ -5,14 +5,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import {
-  IBMPlexSansArabic_400Regular,
-  IBMPlexSansArabic_500Medium,
-  IBMPlexSansArabic_600SemiBold,
-  IBMPlexSansArabic_700Bold,
-  useFonts,
-} from '@expo-google-fonts/ibm-plex-sans-arabic';
+import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { ReportsProvider } from '@/context/ReportsContext';
 import { useColors } from '@/hooks/useColors';
@@ -22,12 +17,13 @@ import { tokenCache } from '@clerk/expo/token-cache';
 import { setBaseUrl, setAuthTokenGetter } from '@workspace/api-client-react';
 import { Platform, View } from 'react-native';
 
-if (Platform.OS !== 'web' && process.env.EXPO_PUBLIC_DOMAIN) setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
+// The web app can be served independently of the API, just like native builds.
+if (!IS_PREVIEW && process.env.EXPO_PUBLIC_DOMAIN) setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
 
 function AuthenticatedReports({ children }: { children: React.ReactNode }) {
   const { getToken, userId } = useAuth();
-  // Native requests have no cookie jar. Web uses same-origin Clerk cookies.
-  if (Platform.OS !== 'web') setAuthTokenGetter(() => getToken());
+  // Bearer tokens also authenticate a web build hosted on a separate domain.
+  setAuthTokenGetter(() => getToken());
   useEffect(() => { queryClient.clear(); }, [userId]);
   return <ReportsProvider key={userId ?? 'guest'}>{children}</ReportsProvider>;
 }
@@ -56,16 +52,17 @@ function RootLayoutNav() {
       <Stack.Screen name="sign-in" options={{ title: 'حسابك', presentation: 'modal' }} />
       <Stack.Screen name="claims" options={{ title: 'طلبات الملكية والتواصل' }} />
       <Stack.Screen name="moderation" options={{ title: 'مراجعة المحتوى' }} />
+      <Stack.Screen name="recovery/[id]" options={{ title: 'رحلة الإعادة', headerShown: false }} />
     </Stack>
   );
 }
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    IBMPlexSansArabic_400Regular,
-    IBMPlexSansArabic_500Medium,
-    IBMPlexSansArabic_600SemiBold,
-    IBMPlexSansArabic_700Bold,
+    IBMPlexSansArabic_400Regular: require('@expo-google-fonts/ibm-plex-sans-arabic/400Regular/IBMPlexSansArabic_400Regular.ttf'),
+    IBMPlexSansArabic_500Medium: require('@expo-google-fonts/ibm-plex-sans-arabic/500Medium/IBMPlexSansArabic_500Medium.ttf'),
+    IBMPlexSansArabic_600SemiBold: require('@expo-google-fonts/ibm-plex-sans-arabic/600SemiBold/IBMPlexSansArabic_600SemiBold.ttf'),
+    IBMPlexSansArabic_700Bold: require('@expo-google-fonts/ibm-plex-sans-arabic/700Bold/IBMPlexSansArabic_700Bold.ttf'),
   });
 
   useEffect(() => {
@@ -77,13 +74,14 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#EEF6F7', alignItems: 'center' }}>
-    <SafeAreaProvider style={{ width: '100%', flex: 1, ...(Platform.OS === 'web' ? { maxWidth: 720, borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#DDE8EA' } : {}) }}>
+    <View style={{ flex: 1, backgroundColor: '#ECEFF3', alignItems: 'center' }}>
+    <SafeAreaProvider style={{ width: '100%', flex: 1, ...(Platform.OS === 'web' ? { maxWidth: 720, borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#E2E7EC' } : {}) }}>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <AppProviders>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <KeyboardProvider>
+                <StatusBar style="dark" />
                 <RootLayoutNav />
               </KeyboardProvider>
             </GestureHandlerRootView>

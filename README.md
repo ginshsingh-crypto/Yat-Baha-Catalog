@@ -6,6 +6,8 @@
 
 Open the preview link on your phone or computer. Explore the sample reports, add a lost or found item, attach a photo, search by city and category, save reports, edit your entries, and mark an item returned. Entries in this preview stay in that browser or device. The screen identifies the preview and the sample reports.
 
+The current version includes a guided three-step report with resumable drafts; Arabic/English search with spelling normalization; saved searches; ranked comparisons that explain shared details and conflicting colors, brands or dates; and a private device-only return checklist. Photos and reports stay local in the preview. Optional real photo description assistance is implemented for a separately configured production API and is not simulated in this preview.
+
 The same Expo app source supports Android, iOS, and the browser. The browser preview runs from GitHub Pages and updates when changes reach `main`. All source code, supplied brand files, and deployment configuration are in this repository.
 
 ## Preview on a phone with Expo Go
@@ -55,3 +57,9 @@ The browser preview exercises local reports. The shared service still needs its 
 The release owner must provide the final Android application ID, iOS bundle ID, store developer accounts and signing access, support contact, and the final privacy policy and store disclosures. Then build and test the signed Android and iOS apps, including login, cross-user claims, moderation, photo deletion, and account deletion, before submitting to the stores. See [release preparation](docs/release.md).
 
 The partnership brief describes further community services and proposed collaborations. The first app focuses on lost-and-found. The brand materials attribute the concept, preparation, and design to **أ. د. فهد بن حمد المغلوث**.
+
+## Verification and offline preview
+
+Run `pnpm test:app` for behavior tests. The GitHub workflows run these tests alongside TypeScript, export checks, and isolated API checks. See [offline behavior](docs/offline.md) for first-load, update and browser-storage limits. The preview is not a signed store release.
+
+![Arabic app preview](docs/preview.jpg)

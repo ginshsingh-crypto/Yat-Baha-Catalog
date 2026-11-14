@@ -3,7 +3,8 @@ import healthRouter from "./health";
 import reportsRouter from "./reports";
 import claimsRouter from "./claims";
 import { rateLimit } from "express-rate-limit";
-import { identity } from "../lib/community";
+import { identity, requireUser, user } from "../lib/community";
+import { createPhotoAssistRouter } from "./photoAssist";
 
 const router: IRouter = Router();
 
@@ -21,6 +22,7 @@ router.use(rateLimit({
   keyGenerator: (req) => identity(req) ?? "anonymous",
   message: { error: "طلبات كثيرة. انتظر دقيقة ثم حاول مجدداً." },
 }));
+router.use(createPhotoAssistRouter({ requireUser, user }));
 router.use(reportsRouter);
 router.use(claimsRouter);
 

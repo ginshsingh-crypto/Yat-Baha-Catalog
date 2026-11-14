@@ -53,3 +53,11 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Local service credentials and build environments
+.env
+.env.*
+!.env.example
+*.keystore
+*.p12
+*.mobileprovision

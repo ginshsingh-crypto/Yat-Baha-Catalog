@@ -31,8 +31,12 @@ jobs:
         run: |
           pnpm exec tsc --build lib/api-client-react
           pnpm --filter @workspace/yat-biha run typecheck
+      - name: Test capture, storage, search and recovery
+        run: pnpm run test:app
       - name: Build GitHub Pages preview
         run: pnpm run preview:pages
+      - name: Test offline export
+        run: PREVIEW_EXPORT_DIR=artifacts/yat-biha/dist node --test scripts/preview-offline.test.mjs
       - name: Upload preview
         uses: actions/upload-pages-artifact@v3
         with:

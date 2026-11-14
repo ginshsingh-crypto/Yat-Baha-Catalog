@@ -1,0 +1,44 @@
+name: API checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: yatbiha_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm --filter '@workspace/api-server...' install --frozen-lockfile --ignore-scripts
+      - name: Check API types
+        run: |
+          pnpm exec tsc --build lib/db lib/api-zod
+          pnpm --filter @workspace/api-server run typecheck
+      - name: Test photo assistance with mocked model calls
+        run: pnpm --filter @workspace/api-server run test:photo-assist
+      - name: Test photo storage and concurrent mutations
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/yatbiha_test
+        run: pnpm --filter @workspace/api-server exec node --import tsx --test scripts/*.test.ts

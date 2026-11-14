@@ -1,13 +1,15 @@
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
-import { and, eq, or, desc, sql } from "drizzle-orm";
+import { and, eq, or, desc } from "drizzle-orm";
 import { db, claims, reports, messages, abuses } from "@workspace/db";
 import { CreateClaimBody, DecideClaimBody, SendMessageBody, ReportAbuseBody, ModerateItemBody } from "@workspace/api-zod";
 import { user, requireUser, requireModerator, privateSafe, fail } from "../lib/community";
+import { withAccountMutation, type Transaction } from '../lib/mutations';
 
 const router = Router();
-async function participant(id: string, uid: string) {
-  const [row] = await db.select({ claim: claims, report: reports }).from(claims).innerJoin(reports, eq(claims.reportId, reports.id)).where(eq(claims.id, id));
+async function participant(id: string, uid: string, connection: Transaction | typeof db = db, lock = false) {
+  const query = connection.select({ claim: claims, report: reports }).from(claims).innerJoin(reports, eq(claims.reportId, reports.id)).where(eq(claims.id, id));
+  const [row] = await (lock ? query.for('update') : query);
   if (!row || (row.claim.claimantId !== uid && row.report.ownerId !== uid)) fail(404, "الطلب غير متاح.");
   return row;
 }
@@ -26,25 +28,32 @@ router.post("/claims", requireUser, async (req, res) => {
   const uid = user(req);
   const data = CreateClaimBody.strict().parse(req.body);
   privateSafe(data.evidence);
-  const [report] = await db.select().from(reports).where(eq(reports.id, data.reportId));
-  if (!report || report.hidden || report.status !== "open") fail(404, "البلاغ غير متاح لطلب جديد.");
-  if (report.ownerId === uid) fail(400, "لا يمكنك المطالبة ببلاغك.");
-  const [claim] = await db.insert(claims).values({ ...data, claimantId: uid, id: randomUUID() }).returning();
-  res.status(201).json(claimView({ claim: claim!, report }, uid));
+  const view = await withAccountMutation(uid, async (tx) => {
+    const [report] = await tx.select().from(reports).where(eq(reports.id, data.reportId)).for('update');
+    if (!report || report.hidden || report.status !== "open") fail(404, "البلاغ غير متاح لطلب جديد.");
+    if (report.ownerId === uid) fail(400, "لا يمكنك المطالبة ببلاغك.");
+    const [claim] = await tx.insert(claims).values({ ...data, claimantId: uid, id: randomUUID() }).returning();
+    return claimView({ claim: claim!, report }, uid);
+  });
+  res.status(201).json(view);
 });
 router.patch("/claims/:id", requireUser, async (req, res) => {
   const uid = user(req);
-  const { claim, report } = await participant(String(req.params.id), uid);
-  if (report.ownerId !== uid) fail(403, "صاحب البلاغ وحده يمكنه اتخاذ القرار.");
   const data = DecideClaimBody.strict().parse(req.body);
-  if (data.status === "accepted" && (report.hidden || report.status !== "open")) fail(409, "البلاغ مغلق أو مخفي.");
-  await db.update(claims).set(data).where(eq(claims.id, claim.id));
+  await withAccountMutation(uid, async (tx) => {
+    const { claim, report } = await participant(String(req.params.id), uid, tx, true);
+    if (report.ownerId !== uid) fail(403, "صاحب البلاغ وحده يمكنه اتخاذ القرار.");
+    if (data.status === "accepted" && (report.hidden || report.status !== "open")) fail(409, "البلاغ مغلق أو مخفي.");
+    await tx.update(claims).set(data).where(eq(claims.id, claim.id));
+  });
   res.sendStatus(204);
 });
 router.delete("/claims/:id", requireUser, async (req, res) => {
-  const { claim } = await participant(String(req.params.id), user(req));
-  if (claim.claimantId !== user(req)) fail(403, "مقدم الطلب وحده يمكنه سحبه.");
-  await db.delete(claims).where(eq(claims.id, claim.id));
+  await withAccountMutation(user(req), async (tx) => {
+    const { claim } = await participant(String(req.params.id), user(req), tx, true);
+    if (claim.claimantId !== user(req)) fail(403, "مقدم الطلب وحده يمكنه سحبه.");
+    await tx.delete(claims).where(eq(claims.id, claim.id));
+  });
   res.sendStatus(204);
 });
 router.get("/claims/:id/messages", requireUser, async (req, res) => {
@@ -58,20 +67,25 @@ router.get("/claims/:id/messages", requireUser, async (req, res) => {
 });
 router.post("/claims/:id/messages", requireUser, async (req, res) => {
   const uid = user(req);
-  const { claim, report } = await participant(String(req.params.id), uid);
-  if (claim.status !== "accepted" || report.hidden || report.status !== "open") fail(403, "التواصل متاح بعد قبول الطلب وعلى بلاغ مفتوح فقط.");
   const data = SendMessageBody.strict().parse(req.body);
   privateSafe(data.body);
-  const [message] = await db.insert(messages).values({ ...data, id: randomUUID(), claimId: claim.id, senderId: uid }).returning();
+  const message = await withAccountMutation(uid, async (tx) => {
+    const { claim, report } = await participant(String(req.params.id), uid, tx, true);
+    if (claim.status !== "accepted" || report.hidden || report.status !== "open") fail(403, "التواصل متاح بعد قبول الطلب وعلى بلاغ مفتوح فقط.");
+    const [created] = await tx.insert(messages).values({ ...data, id: randomUUID(), claimId: claim.id, senderId: uid }).returning();
+    return created!;
+  });
   res.status(201).json(messageView(message!, uid));
 });
 router.post("/reports/:id/abuse", requireUser, async (req, res) => {
   const reportId = String(req.params.id);
-  const [report] = await db.select().from(reports).where(and(eq(reports.id, reportId), eq(reports.hidden, false)));
-  if (!report) fail(404, "البلاغ غير متاح.");
   const data = ReportAbuseBody.strict().parse(req.body);
   privateSafe(data.reason);
-  await db.insert(abuses).values({ ...data, id: randomUUID(), reportId, reporterId: user(req) });
+  await withAccountMutation(user(req), async (tx) => {
+    const [report] = await tx.select().from(reports).where(and(eq(reports.id, reportId), eq(reports.hidden, false))).for('update');
+    if (!report) fail(404, "البلاغ غير متاح.");
+    await tx.insert(abuses).values({ ...data, id: randomUUID(), reportId, reporterId: user(req) });
+  });
   res.sendStatus(204);
 });
 router.get("/moderation", requireModerator, async (_req, res) => {
@@ -83,22 +97,21 @@ router.get("/moderation", requireModerator, async (_req, res) => {
 });
 router.post("/moderation", requireModerator, async (req, res) => {
   const data = ModerateItemBody.strict().parse(req.body);
-  if (data.kind === "message") {
-    const [m] = await db.select().from(messages).where(eq(messages.id, data.id));
-    if (!m) fail(404, "الرسالة غير موجودة.");
-    if (m.senderId === user(req)) fail(403, "لا يمكنك مراجعة رسالتك بنفسك.");
-    const [changed] = await db.update(messages).set({ status: data.approve ? "approved" : "rejected", reviewedBy: user(req) })
-      .where(and(eq(messages.id, data.id), eq(messages.status, "pending"),
-        data.approve ? sql`exists (select 1 from claims c join reports r on r.id = c.report_id where c.id = ${messages.claimId} and c.status = 'accepted' and r.status = 'open' and r.hidden = false)` : undefined)).returning();
-    if (!changed) fail(409, "تمت مراجعة الرسالة بالفعل أو أُغلق التواصل.");
-  } else {
-    await db.transaction(async (tx) => {
+  await withAccountMutation(user(req), async (tx) => {
+    if (data.kind === "message") {
+      const [row] = await tx.select({ message: messages, claim: claims, report: reports }).from(messages)
+        .innerJoin(claims, eq(messages.claimId, claims.id)).innerJoin(reports, eq(claims.reportId, reports.id)).where(eq(messages.id, data.id)).for('update');
+      if (!row) fail(404, "الرسالة غير موجودة.");
+      if (row.message.senderId === user(req)) fail(403, "لا يمكنك مراجعة رسالتك بنفسك.");
+      if (row.message.status !== 'pending' || (data.approve && (row.claim.status !== 'accepted' || row.report.status !== 'open' || row.report.hidden))) fail(409, "تمت مراجعة الرسالة بالفعل أو أُغلق التواصل.");
+      await tx.update(messages).set({ status: data.approve ? 'approved' : 'rejected', reviewedBy: user(req) }).where(eq(messages.id, data.id));
+    } else {
       const [abuse] = await tx.update(abuses).set({ status: data.approve ? "upheld" : "dismissed", reviewedBy: user(req) })
         .where(and(eq(abuses.id, data.id), eq(abuses.status, "pending"))).returning();
       if (!abuse) fail(409, "تمت مراجعة الشكوى بالفعل.");
       if (data.approve) await tx.update(reports).set({ hidden: true, updatedAt: new Date() }).where(eq(reports.id, abuse.reportId));
-    });
-  }
+    }
+  });
   res.sendStatus(204);
 });
 export default router;

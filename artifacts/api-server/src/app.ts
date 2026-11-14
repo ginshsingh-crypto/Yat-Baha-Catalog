@@ -32,7 +32,9 @@ app.use(
 );
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 app.use(cors());
-app.use(express.json());
+// The image-assistance endpoint authenticates and rate-limits before its larger parser.
+const jsonParser = express.json();
+app.use((req, res, next) => req.path === "/api/assist/photo" ? next() : jsonParser(req, res, next));
 app.use(express.urlencoded({ extended: true }));
 app.use(clerkMiddleware((req) => ({
   publishableKey: publishableKeyFromHost(getClerkProxyHost(req) ?? "", process.env.CLERK_PUBLISHABLE_KEY),

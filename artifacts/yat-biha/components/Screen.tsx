@@ -4,6 +4,7 @@ import { Platform, ScrollView, View, ScrollViewProps } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { T } from '@/components/ui';
+import { PreviewConnectivity } from '@/components/PreviewConnectivity';
 
 export function TabScreen({ title, subtitle, children, header, ...rest }: ScrollViewProps & { title?: string; subtitle?: string; header?: React.ReactNode }) {
   const c = useColors();
@@ -18,11 +19,7 @@ export function TabScreen({ title, subtitle, children, header, ...rest }: Scroll
       showsVerticalScrollIndicator={false}
       {...rest}
     >
-      {IS_PREVIEW ? (
-        <View style={{ backgroundColor: c.turquoiseSoft, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 18 }}>
-          <T size={12} color={c.primary} center>نسخة للمعاينة · بياناتك محفوظة على هذا الجهاز</T>
-        </View>
-      ) : null}
+      {IS_PREVIEW ? <PreviewConnectivity /> : null}
       {header}
       {title ? (
         <View style={{ marginBottom: 18, marginTop: 6 }}>

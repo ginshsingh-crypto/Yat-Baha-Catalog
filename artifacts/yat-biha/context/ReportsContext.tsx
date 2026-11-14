@@ -87,12 +87,28 @@ async function writeIndex(ids: string[]) {
   }
 }
 
-async function loadReports(): Promise<{ reports: Report[]; warning: string | null }> {
+function isStoredReport(value: unknown): value is Report {
+  if (!value || typeof value !== 'object') return false;
+  const r = value as Record<string, unknown>;
+  return ['id', 'title', 'category', 'description', 'city', 'place', 'date'].every(k => typeof r[k] === 'string')
+    && !!r.id && (r.type === 'lost' || r.type === 'found') && (r.status === 'open' || r.status === 'returned')
+    && typeof r.createdAt === 'number' && Number.isFinite(r.createdAt)
+    && typeof r.updatedAt === 'number' && Number.isFinite(r.updatedAt)
+    && (r.photoUri === undefined || typeof r.photoUri === 'string');
+}
+function readIds(raw: string): string[] {
+  const values: unknown = JSON.parse(raw);
+  if (!Array.isArray(values) || !values.every(v => typeof v === 'string' && v.length > 0)) throw new Error('Invalid local index');
+  return [...new Set(values)];
+}
+async function loadReports(): Promise<{ reports: Report[]; warning: string | null; safeToWrite: boolean }> {
   const indexRaw = await AsyncStorage.getItem(K_INDEX);
   if (indexRaw === null) {
     const legacy = await AsyncStorage.getItem(K_LEGACY);
-    if (!legacy) return { reports: [], warning: null };
-    const reports = JSON.parse(legacy) as Report[];
+    if (!legacy) return { reports: [], warning: null, safeToWrite: true };
+    const values: unknown = JSON.parse(legacy);
+    if (!Array.isArray(values) || !values.every(isStoredReport)) throw new Error('Invalid legacy reports');
+    const reports = values;
     // Migrate: records first, then commit the index, then drop the legacy entry.
     await AsyncStorage.multiSet(reports.map((r) => [recKey(r.id), JSON.stringify(r)] as [string, string]));
     await AsyncStorage.setItem(K_INDEX, JSON.stringify(reports.map((r) => r.id)));
@@ -102,24 +118,26 @@ async function loadReports(): Promise<{ reports: Report[]; warning: string | nul
     } catch {
       warning = 'نُقلت بلاغاتك إلى التخزين الجديد، لكن تعذّر حذف النسخة القديمة من الجهاز.';
     }
-    return { reports, warning };
+    return { reports, warning, safeToWrite: true };
   }
-  const ids = JSON.parse(indexRaw) as string[];
+  const ids = readIds(indexRaw);
   const pairs = ids.length ? await AsyncStorage.multiGet(ids.map(recKey)) : [];
   const reports: Report[] = [];
   let broken = 0;
-  for (const [, v] of pairs) {
+  for (const [key, v] of pairs) {
     if (!v) {
       broken++;
       continue;
     }
     try {
-      reports.push(JSON.parse(v) as Report);
+      const parsed: unknown = JSON.parse(v);
+      if (!isStoredReport(parsed) || recKey(parsed.id) !== key) throw new Error('Invalid record');
+      reports.push(parsed);
     } catch {
       broken++;
     }
   }
-  return { reports, warning: broken ? `تعذّرت قراءة ${broken} من بلاغاتك المحفوظة على هذا الجهاز.` : null };
+  return { reports, safeToWrite: broken === 0, warning: broken ? `تعذّرت قراءة ${broken} من بلاغاتك المحفوظة على هذا الجهاز.` : null };
 }
 
 interface Ctx {
@@ -148,6 +166,10 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
   const mineRef = useRef<Report[]>([]);
   const savedRef = useRef<string[]>([]);
   const pending = useRef(Promise.resolve());
+  const writable = useRef(false);
+  const requireLoaded = () => {
+    if (!writable.current) throw new Error('تعذّر التأكد من بياناتك المحفوظة. أعد تحميلها قبل التعديل حتى لا تفقد أي بلاغ.');
+  };
   const enqueue = useCallback(<Result,>(operation: () => Promise<Result>): Promise<Result> => {
     const result = pending.current.then(operation);
     pending.current = result.then(() => undefined, () => undefined);
@@ -170,13 +192,15 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
     let alive = true;
     void enqueue(async () => {
       setLoading(true);
+      writable.current = false;
       setLoadError(null);
       try {
-        const { reports, warning } = await loadReports();
+        const { reports, warning, safeToWrite } = await loadReports();
         const [s, dm] = await AsyncStorage.multiGet([K_SAVED, K_DEMO]).then((x) => x.map((p) => p[1]));
         if (!alive) return;
         setMine(reports.map((report) => ({ ...report, local: true, isOwner: true })));
-        setSaved(s ? (JSON.parse(s) as string[]) : []);
+        setSaved(s ? readIds(s) : []);
+        writable.current = safeToWrite;
         setShowDemoState(dm === null ? IS_PREVIEW : dm === '1');
         if (warning) setLoadError(warning);
       } catch {
@@ -192,6 +216,7 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
 
   const createReport = useCallback(
     (input: ReportInput) => enqueue(async () => {
+      requireLoaded();
       const now = Date.now();
       const r: Report = { ...input, id: now.toString() + Math.random().toString(36).slice(2, 9), status: 'open', createdAt: now, updatedAt: now, local: true, isOwner: true };
       try {
@@ -213,6 +238,7 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
 
   const updateReport = useCallback(
     (id: string, input: Partial<Report>) => enqueue(async () => {
+      requireLoaded();
       const cur = mineRef.current.find((r) => r.id === id);
       if (!cur) throw new Error('البلاغ غير موجود على هذا الجهاز.');
       const next: Report = { ...cur, ...input, id, updatedAt: Date.now() };
@@ -228,6 +254,7 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
 
   const deleteReport = useCallback(
     (id: string) => enqueue(async () => {
+      requireLoaded();
       const rest = mineRef.current.filter((r) => r.id !== id);
       await writeIndex(rest.map((r) => r.id));
       setMine(rest);
@@ -236,6 +263,12 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.removeItem(recKey(id));
       } catch {
         problems.push('بيانات البلاغ');
+      }
+      try {
+        const recoveryPrefix = IS_PREVIEW ? 'yat-biha.preview.recovery.v1.' : 'yat-biha.local.recovery.v1.';
+        await AsyncStorage.removeItem(recoveryPrefix + encodeURIComponent(id));
+      } catch {
+        problems.push('ملاحظات الإعادة الخاصة؛ امسح بيانات الجهاز من الإعدادات لإكمال الإزالة');
       }
       if (savedRef.current.includes(id)) {
         const ns = savedRef.current.filter((x) => x !== id);
@@ -253,6 +286,7 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
 
   const toggleSaved = useCallback(
     (id: string) => enqueue(async () => {
+      requireLoaded();
       const ns = savedRef.current.includes(id) ? savedRef.current.filter((x) => x !== id) : [id, ...savedRef.current];
       try {
         await AsyncStorage.setItem(K_SAVED, JSON.stringify(ns));
@@ -276,11 +310,14 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
   const clearAll = useCallback(() => enqueue(async () => {
     try {
       const keys = await AsyncStorage.getAllKeys();
-      const recs = keys.filter((k) => k.startsWith(K_REC));
-      await AsyncStorage.multiRemove([K_INDEX, K_LEGACY, K_SAVED, ...recs]);
+      const extras = IS_PREVIEW ? 'yat-biha.preview.' : 'yat-biha.local.';
+      const recs = keys.filter((k) => k.startsWith(K_REC) || k.startsWith(extras));
+      await AsyncStorage.multiRemove([K_INDEX, K_LEGACY, K_SAVED, STORAGE_PREFIX + 'saved-searches.v1', ...recs]);
     } catch {
       throw new Error('تعذّر مسح البيانات من الجهاز.');
     }
+    writable.current = true;
+    setLoadError(null);
     setMine([]);
     setSaved([]);
   }), [enqueue, setMine, setSaved]);
@@ -332,7 +369,7 @@ function CommunityReportsProvider({ children }: { children: React.ReactNode }) {
     const { type, title, category, description, city, place, date } = input;
     const r = await createShared({ type, title, category: category as Parameters<typeof createShared>[0]['category'], description, city, place, date, photoId: await photoId(input) });
     await refresh();
-    return { ...r, photoUri: r.photoId ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api/photos/${r.photoId}` : undefined };
+    return { ...r, photoUri: r.photoId ? `${process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : ''}/api/photos/${r.photoId}` : undefined };
   }
   const value: Ctx = {
     ...local, all, mine,

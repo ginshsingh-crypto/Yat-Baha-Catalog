@@ -22,6 +22,7 @@ export const photos = pgTable("photos", {
   ownerId: text("owner_id").notNull(),
   rawPath: text("raw_path").notNull(),
   cleanPath: text("clean_path"),
+  rawPurgedAt: timestamp("raw_purged_at", { withTimezone: true }),
   size: integer("size").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -57,4 +58,19 @@ export const abuses = pgTable("abuse_reports", {
 
 export const moderators = pgTable("moderators", {
   userId: text("user_id").primaryKey(),
+});
+
+// Kept after identity deletion so an unexpired session cannot recreate data.
+// This contains only the identity provider's opaque user ID and deletion time.
+export const accountDeletions = pgTable("account_deletions", {
+  userId: text("user_id").primaryKey(),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// A short-lived upload URL may outlive report/account deletion. Retain the
+// opaque path until it expires, then remove any raw object recreated with it.
+export const photoDeletions = pgTable("photo_deletions", {
+  photoId: text("photo_id").primaryKey(),
+  rawPath: text("raw_path").notNull(),
+  notBefore: timestamp("not_before", { withTimezone: true }).notNull(),
 });

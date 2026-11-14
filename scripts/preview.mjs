@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { addOfflinePreview } from './preview-offline.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const app = resolve(root, 'artifacts/yat-biha');
@@ -72,5 +73,7 @@ if (build) {
   // GitHub Pages serves this document for dynamic report URLs and page refreshes.
   copyFileSync(indexPath, resolve(output, '404.html'));
   writeFileSync(resolve(output, '.nojekyll'), '');
+  const offline = addOfflinePreview(output, basePath, resolve(app, 'assets/images/icon.png'));
+  console.log(`Offline preview ${offline.version}: ${offline.assets.length} verified static resources`);
   console.log(`Preview exported to ${output}`);
 }

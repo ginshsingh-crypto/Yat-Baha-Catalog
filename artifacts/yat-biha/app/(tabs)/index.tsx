@@ -1,131 +1,164 @@
 import React from 'react';
 import { IS_PREVIEW } from '@/config/runtime';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
-import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { useColors } from '@/hooks/useColors';
-import { CATEGORIES, useReports } from '@/context/ReportsContext';
+import { CATEGORIES, findMatches, useReports } from '@/context/ReportsContext';
 import { TabScreen } from '@/components/Screen';
-import { Chip, Empty, ErrorBox, Press, ReportCard, ROW, SectionTitle, SkeletonList, T, Button } from '@/components/ui';
+import { ReturnIllustration } from '@/components/home/ReturnIllustration';
+import { Empty, ErrorBox, Press, ReportCard, ROW, SectionTitle, SkeletonList, T, Button } from '@/components/ui';
+
+const CATEGORY_COLORS = ['#EEF3EB', '#EBF0F8', '#FFF0D9', '#F3EAF0', '#E8F4F1', '#F9EDE5', '#EBF0F8', '#F3EAF0', '#EEF1F4'];
+const CATEGORY_SHORT: Record<string, string> = { jewelry: 'ساعات وحُلي', electronics: 'إلكترونيات' };
 
 export default function Home() {
   const c = useColors();
+  const { width, fontScale } = useWindowDimensions();
+  const availableWidth = Math.min(width, 720);
+  const compact = availableWidth < 480;
+  const tiny = availableWidth < 360;
+  const largeText = fontScale > 1.2;
   const { all, mine, loading, loadError, retryLoad } = useReports();
-  const open = all.filter((r) => r.status === 'open');
-  const recent = [...open].sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt)).slice(0, 5);
+  const open = all.filter((r) => r.status === 'open' && !r.hidden);
+  const recent = [...open].sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt)).slice(0, 4);
+  const activeMine = mine.filter((r) => r.status === 'open' && !r.hidden);
+  const nextReport = activeMine.find((r) => findMatches(r, all).length > 0) ?? activeMine[0];
+  const nextMatches = nextReport ? findMatches(nextReport, all).length : 0;
+  const goNew = (type: 'lost' | 'found') => router.push({ pathname: '/report/new', params: { type } });
 
   return (
     <TabScreen>
-      <Animated.View entering={FadeIn.duration(500)} style={{ flexDirection: ROW, alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+      <View style={styles.brandRow}>
         <View style={{ flexDirection: ROW, alignItems: 'center', gap: 10 }}>
-          <Image source={require('@/assets/images/logo.png')} style={{ width: 44, height: 44, borderRadius: 12 }} />
+          <Image source={require('@/assets/images/logo.png')} style={{ width: 43, height: 43, borderRadius: 12 }} accessibilityLabel="شعار يأت بها" />
           <View>
-            <T w="bold" size={20} style={{ lineHeight: 28 }}>
-              يأتِ بها
-            </T>
-            <T size={11} color={c.mutedForeground} style={{ lineHeight: 16 }}>
-              من الحاجة إلى الوصول
-            </T>
+            <T w="bold" size={23} style={{ lineHeight: 32 }}>يأتِ بها</T>
+            <T size={11} color={c.mutedForeground} style={{ lineHeight: 19 }}>من الحاجة إلى الوصول</T>
           </View>
         </View>
-        <Press onPress={() => router.push('/search')} style={[styles.iconBtn, { backgroundColor: c.card, borderColor: c.border }]}>
-          <Feather name="search" size={20} color={c.primary} />
+        <Press onPress={() => router.push('/mine')} accessibilityLabel="فتح بلاغاتي" style={[styles.iconBtn, { backgroundColor: c.card, borderColor: c.border }]}>
+          <Feather name="grid" size={20} color={c.primary} />
         </Press>
-      </Animated.View>
-
-      <Animated.View entering={FadeInDown.delay(80).springify().damping(16)}>
-        <LinearGradient colors={['#1FA3B8', '#16124A']} start={{ x: 1, y: 0 }} end={{ x: 0, y: 1 }} style={styles.hero}>
-          <View style={[styles.ring, { borderColor: '#F3932566', top: -50, left: -40 }]} />
-          <View style={[styles.ring, { borderColor: '#FFFFFF22', width: 120, height: 120, bottom: -30, right: -20 }]} />
-          <T w="medium" size={13} color="#CDEEF3">
-            لا تقلق، خطوة بخطوة
-          </T>
-          <T w="bold" size={27} color="#F4FBFC" style={{ lineHeight: 40, marginTop: 2 }}>
-            فقدت شيئاً؟ أو وجدت ما ليس لك؟
-          </T>
-          <T size={14} color="#DDEFF2" style={{ marginTop: 6 }}>
-            سجّل التفاصيل، وسنعرض لك بلاغات قد تتطابق معها في مدينتك.
-          </T>
-          <View style={{ flexDirection: ROW, gap: 10, marginTop: 18 }}>
-            <Press testID="cta-lost" onPress={() => router.push({ pathname: '/report/new', params: { type: 'lost' } })} style={[styles.cta, { backgroundColor: '#F4FBFC' }]}>
-              <Feather name="help-circle" size={18} color={c.magenta} />
-              <T w="bold" size={14} color={c.primary}>
-                فقدت شيئاً
-              </T>
-            </Press>
-            <Press testID="cta-found" onPress={() => router.push({ pathname: '/report/new', params: { type: 'found' } })} style={[styles.cta, { backgroundColor: c.orange }]}>
-              <Feather name="check-circle" size={18} color={c.accentForeground} />
-              <T w="bold" size={14} color={c.accentForeground}>
-                وجدت شيئاً
-              </T>
-            </Press>
-          </View>
-        </LinearGradient>
-      </Animated.View>
-
-      <View style={{ flexDirection: ROW, gap: 10, marginTop: 14 }}>
-        {[
-          { n: open.filter((r) => !r.demo).length, l: IS_PREVIEW ? 'تجربة مفتوحة' : 'بلاغ مفتوح', col: c.turquoise },
-          { n: mine.length, l: 'بلاغاتك', col: c.magenta },
-          { n: all.filter((r) => !r.demo && r.status === 'returned').length, l: 'مُعاد يدوياً', col: c.success },
-        ].map((s) => (
-          <View key={s.l} style={[styles.stat, { backgroundColor: c.card, borderColor: c.border }]}>
-            <T w="bold" size={24} color={s.col} style={{ lineHeight: 32 }}>
-              {s.n.toLocaleString('ar-SA')}
-            </T>
-            <T size={12} color={c.mutedForeground}>
-              {s.l}
-            </T>
-          </View>
-        ))}
       </View>
 
-      <SectionTitle title="تصفّح حسب الفئة" />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, flexDirection: ROW }} style={{ marginHorizontal: -20 }}>
-        <View style={{ width: 12 }} />
-        {CATEGORIES.map((cat) => (
-          <Chip key={cat.key} label={cat.label} icon={cat.icon as keyof typeof Feather.glyphMap} onPress={() => router.push({ pathname: '/search', params: { category: cat.key } })} />
-        ))}
-        <View style={{ width: 12 }} />
-      </ScrollView>
-
-      <SectionTitle title="أحدث البلاغات" action="عرض الكل" onAction={() => router.push('/search')} />
-      {loadError ? <ErrorBox message={loadError} onRetry={retryLoad} /> : null}
-      {loading ? (
-        <SkeletonList />
-      ) : recent.length === 0 ? (
-        <Empty icon="sun" title="الهدوء يعمّ المكان" body="لا توجد بلاغات مفتوحة الآن. كن أول من يسجّل بلاغاً، أو فعّل الأمثلة التوضيحية من الإعدادات." action={<Button label="إنشاء بلاغ" icon="plus" onPress={() => router.push('/report/new')} />} />
-      ) : (
-        recent.map((r, i) => <ReportCard key={r.id} report={r} index={i} />)
-      )}
-
-      <View style={[styles.safety, { backgroundColor: c.orangeSoft }]}>
-        <View style={{ flexDirection: ROW, gap: 8, alignItems: 'center' }}>
-          <Feather name="shield" size={18} color="#8A4B00" />
-          <T w="bold" size={15} color="#5C3200">
-            قبل أي تسليم
-          </T>
+      <View style={[styles.hero, { padding: compact ? 21 : 28 }]}>
+        <View style={styles.heroGlow} />
+        {!largeText ? <View pointerEvents="none" style={{ position: 'absolute', left: compact ? 2 : 20, top: compact ? 25 : 17, opacity: 0.98 }}>
+          <ReturnIllustration width={compact ? (tiny ? 107 : 124) : 173} />
+        </View> : null}
+        <View style={{ alignSelf: 'flex-end', flexDirection: ROW, alignItems: 'center', gap: 6, paddingBottom: 10 }}>
+          <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: '#F7B24F' }} />
+          <T size={11} w="medium" color="#B1DCD5">مساحة تجمع الفقد بالأمانة</T>
         </View>
-        <T size={13} color="#5C3200">
-          اطلب من المدّعي وصف تفاصيل لا تظهر في البلاغ، وتحقّق بشكل خاص. سلّم في مكان عام أو لدى جهة مخوّلة كأمن المجمع أو مركز الشرطة، ولا تشارك بياناتك الشخصية علناً.
+        <T w="bold" size={compact ? (tiny ? 26 : 30) : 37} color="#FFFFFF" style={{ lineHeight: compact ? 43 : 53, width: largeText ? '100%' : compact ? '74%' : '70%', alignSelf: 'flex-end', marginBottom: compact ? 16 : 22 }}>
+          {'ما ضاع منك،\nقد وجده أحد.'}
         </T>
+        <T size={compact ? 13 : 14} color="#D5E9E6" style={{ maxWidth: compact ? '100%' : '75%', alignSelf: 'flex-end' }}>
+          صِف ما فقدت أو أبلغ عمّا وجدت. نقرّب التفاصيل، وتبقى أنت صاحب القرار.
+        </T>
+        <View style={{ flexDirection: ROW, gap: 10, marginTop: 23 }}>
+          <Press testID="cta-lost" onPress={() => goNew('lost')} style={[styles.cta, { backgroundColor: '#F6A232' }]}>
+            <Feather name="search" size={18} color="#35220A" />
+            <T w="bold" size={14} color="#35220A">فقدت شيئاً</T>
+          </Press>
+          <Press testID="cta-found" onPress={() => goNew('found')} style={[styles.cta, { backgroundColor: '#FFFFFF', borderColor: '#FFFFFF', borderWidth: 1 }]}>
+            <Feather name="plus" size={19} color="#153D3B" />
+            <T w="bold" size={14} color="#153D3B">وجدت شيئاً</T>
+          </Press>
+        </View>
       </View>
 
-      <T size={12} color={c.mutedForeground} center style={{ marginTop: 18 }}>
-        {IS_PREVIEW ? 'جرّب إنشاء بلاغ والبحث وحفظ النتائج. الأمثلة التوضيحية خيالية وبيانات المعاينة خاصة بجهازك.' : 'البلاغات المشتركة يراها الجميع. «مثال توضيحي» للعرض فقط، والبلاغات القديمة تبقى محلية حتى تختار نشر نسخة.'}
-      </T>
+      <Press testID="home-search" onPress={() => router.push('/search')} accessibilityLabel="ابحث في البلاغات" style={[styles.search, { backgroundColor: c.card, borderColor: c.border }]}>
+        <View style={{ width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: c.turquoiseSoft }}>
+          <Feather name="search" size={19} color={c.turquoise} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <T w="semibold" size={14}>هل وجده أحد قبلك؟</T>
+          <T size={12} color={c.mutedForeground}>ابحث عن الغرض، اللون أو المكان</T>
+        </View>
+        <Feather name="arrow-left" size={19} color={c.mutedForeground} />
+      </Press>
+
+      {nextReport ? (
+        <Press testID="home-follow-up" onPress={() => router.push(`/report/${nextReport.id}`)} style={[styles.followUp, { borderColor: c.border, backgroundColor: '#EDF5F3' }]}>
+          <View style={{ flexDirection: ROW, gap: 10, alignItems: 'center' }}>
+            <Feather name={nextMatches ? 'git-merge' : 'clock'} size={18} color={c.turquoise} />
+            <T size={12} w="semibold" color={c.turquoise} style={{ flex: 1 }}>{nextMatches ? 'حان وقت مقارنة التفاصيل' : 'أكمل من حيث توقفت'}</T>
+            <Feather name="arrow-left" size={17} color={c.turquoise} />
+          </View>
+          <T w="bold" size={16} numberOfLines={1}>{nextReport.title}</T>
+          <T size={12} color={c.mutedForeground}>{nextMatches ? `${nextMatches.toLocaleString('ar-SA')} من البلاغات تستحق المراجعة. التشابه وحده لا يثبت الملكية.` : 'راجع تفاصيل بلاغك، وابحث عن تطابق أو حدّث حالة الغرض.'}</T>
+        </Press>
+      ) : null}
+
+      <SectionTitle title="عن ماذا تبحث؟" />
+      <View style={{ flexDirection: ROW, flexWrap: 'wrap', gap: compact ? 8 : 10 }}>
+        {CATEGORIES.map((cat, index) => (
+          <Press
+            key={cat.key}
+            accessibilityLabel={`البحث في فئة ${cat.label}`}
+            onPress={() => router.push({ pathname: '/search', params: { category: cat.key } })}
+            style={{ width: compact ? '31.5%' : '18.7%', flexGrow: 1, minHeight: compact ? 91 : 95, borderRadius: 19, paddingHorizontal: 4, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: CATEGORY_COLORS[index] }}
+          >
+            <Feather name={cat.icon as keyof typeof Feather.glyphMap} size={24} color="#354A50" />
+            <T w="medium" size={12} center>{CATEGORY_SHORT[cat.key] ?? cat.label}</T>
+          </Press>
+        ))}
+        {!compact ? <View style={{ width: '18.7%', flexGrow: 1 }} /> : null}
+      </View>
+
+      <View style={{ marginTop: 6 }}>
+        <SectionTitle title="قد يكون هنا" action="كل البلاغات" onAction={() => router.push('/search')} />
+        <T size={12} color={c.mutedForeground} style={{ marginBottom: 15, marginTop: -6 }}>أحدث المفقودات والمعثورات، والتفاصيل التي تصنع الفرق.</T>
+        {loadError ? <ErrorBox message={loadError} onRetry={retryLoad} /> : null}
+        {loading ? <SkeletonList /> : recent.length === 0 ? (
+          <Empty icon="compass" title="البداية من بلاغك" body="لا توجد بلاغات مفتوحة الآن. أضف ما فقدت أو وجدت لتبدأ رحلة البحث." action={<Button label="إنشاء بلاغ" icon="plus" onPress={() => router.push('/report/new')} />} />
+        ) : recent.map((r, i) => <ReportCard key={r.id} report={r} index={i} />)}
+      </View>
+
+      <View style={[styles.journey, { backgroundColor: c.card, borderColor: c.border }]}>
+        <View style={{ flexDirection: ROW, gap: 10, alignItems: 'center', marginBottom: 18 }}>
+          <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: c.orangeSoft, justifyContent: 'center', alignItems: 'center' }}>
+            <Feather name="shield" size={19} color="#8F5416" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={17}>إلى صاحبه، بخطوات واضحة</T>
+            <T size={11} color={c.mutedForeground}>المطابقة بداية للتحقّق، وليست إثباتاً للملكية.</T>
+          </View>
+        </View>
+        {[
+          ['١', 'صِف الغرض', 'لون، صورة واضحة ومكان تقريبي. احتفظ بعلامة مميزة للتحقّق لاحقاً.'],
+          ['٢', 'قارن التفاصيل', 'راجع أسباب التشابه، واسأل عن وصف لا يظهر في البلاغ.'],
+          ['٣', 'أعِد الأمانة', 'اتفق على مكان عام أو جهة مخوّلة، ثم حدّث حالة البلاغ.'],
+        ].map(([number, title, body], index) => (
+          <View key={number} style={{ flexDirection: ROW, alignItems: 'flex-start', gap: 12, paddingBottom: index < 2 ? 17 : 0 }}>
+            <View style={{ width: 27, height: 27, borderRadius: 14, backgroundColor: '#EDF5F3', alignItems: 'center', justifyContent: 'center', marginTop: 3 }}>
+              <T size={12} w="bold" color={c.turquoise} center>{number}</T>
+            </View>
+            <View style={{ flex: 1 }}>
+              <T size={14} w="semibold">{title}</T>
+              <T size={12} color={c.mutedForeground}>{body}</T>
+            </View>
+          </View>
+        ))}
+      </View>
+      <View style={{ flexDirection: ROW, alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 22 }}>
+        <Feather name={IS_PREVIEW ? 'smartphone' : 'heart'} size={13} color={c.mutedForeground} />
+        <T size={11} color={c.mutedForeground} center style={{ flexShrink: 1 }}>{IS_PREVIEW ? 'مساحة للتجربة. بلاغاتك هنا تبقى على جهازك.' : 'كل أمانة تعود، تبدأ بشخص يهتم.'}</T>
+      </View>
     </TabScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  iconBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
-  hero: { borderRadius: 28, padding: 22, overflow: 'hidden' },
-  ring: { position: 'absolute', width: 170, height: 170, borderRadius: 999, borderWidth: 18 },
-  cta: { flex: 1, flexDirection: ROW, alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 16 },
-  stat: { flex: 1, borderRadius: 18, borderWidth: 1, padding: 12 },
-  safety: { borderRadius: 20, padding: 16, gap: 6, marginTop: 20 },
+  brandRow: { flexDirection: ROW, alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 },
+  iconBtn: { width: 44, height: 44, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  hero: { borderRadius: 29, overflow: 'hidden', backgroundColor: '#123D3B' },
+  heroGlow: { position: 'absolute', width: 260, height: 260, borderRadius: 150, top: -90, left: -90, backgroundColor: '#1D514B', opacity: 0.65 },
+  cta: { flex: 1, minHeight: 51, flexDirection: ROW, alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 12, paddingHorizontal: 5, borderRadius: 14 },
+  search: { flexDirection: ROW, alignItems: 'center', gap: 11, padding: 14, borderRadius: 20, borderWidth: 1, marginTop: 14 },
+  followUp: { borderRadius: 19, borderWidth: 1, padding: 16, marginTop: 14, gap: 5 },
+  journey: { borderRadius: 22, borderWidth: 1, padding: 20, marginTop: 22 },
 });

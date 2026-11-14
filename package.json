@@ -9,7 +9,8 @@
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "preview": "node scripts/preview.mjs",
     "preview:build": "node scripts/preview.mjs --build",
-    "preview:pages": "node scripts/preview.mjs --build --pages"
+    "preview:pages": "node scripts/preview.mjs --build --pages",
+    "test:app": "pnpm --filter @workspace/yat-biha test"
   },
   "private": true,
   "dependencies": {

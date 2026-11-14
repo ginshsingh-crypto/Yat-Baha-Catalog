@@ -6,7 +6,8 @@ import { eq } from "drizzle-orm";
 import sharp from "sharp";
 
 if (process.env.NODE_ENV === "production") throw new Error("Development test only");
-const base = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+const base = process.env.TEST_API_BASE_URL?.replace(/\/$/, "");
+if (!base || !/^https?:\/\//.test(base)) throw new Error("Set TEST_API_BASE_URL to the isolated development API URL");
 const users: string[] = [];
 async function account() {
   const u = await clerkClient.users.createUser({ emailAddress: [`community-${randomUUID()}@example.com`], password: randomUUID() + "!aB9" });

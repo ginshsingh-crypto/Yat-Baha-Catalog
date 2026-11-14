@@ -11,18 +11,19 @@ export default function NewReport() {
 }
 
 function CommunityNewReport() {
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, userId } = useAuth();
   if (!isSignedIn) return <Empty icon="lock" title="سجّل الدخول لنشر بلاغ" body="سيظهر البلاغ وصورته للمجتمع. لا تشارك بيانات حساسة." action={<Button label="تسجيل الدخول" onPress={() => router.push('/sign-in')} />} />;
-  return <NewReportForm />;
+  return <NewReportForm draftOwner={userId ?? 'guest'} />;
 }
 
-function NewReportForm() {
+function NewReportForm({ draftOwner = 'preview' }: { draftOwner?: string }) {
   const { type } = useLocalSearchParams<{ type?: string }>();
   const { createReport } = useReports();
   const initialType: ReportType = type === 'found' ? 'found' : 'lost';
 
   return (
     <ReportForm
+      draftId={`new:${draftOwner}:${initialType}`}
       initial={{ type: initialType }}
       localOnly={IS_PREVIEW}
       submitLabel={IS_PREVIEW ? 'حفظ البلاغ على جهازك' : 'نشر البلاغ للمجتمع'}

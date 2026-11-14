@@ -1,82 +1,39 @@
 import React from 'react';
-import { Platform, StyleSheet, useColorScheme, View } from 'react-native';
-import { useColors } from '@/hooks/useColors';
-import { Feather } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
-import { isLiquidGlassAvailable } from 'expo-glass-effect';
+import { Platform, Pressable, View } from 'react-native';
 import { Tabs } from 'expo-router';
-import { NativeTabs } from 'expo-router/native-tabs';
-import { SymbolView, SFSymbol } from 'expo-symbols';
-import { F } from '@/components/ui';
+import Feather from '@expo/vector-icons/Feather';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useColors } from '@/hooks/useColors';
+import { ROW, T, haptic } from '@/components/ui';
 
-const TABS: { name: string; label: string; sf: [SFSymbol, SFSymbol]; icon: keyof typeof Feather.glyphMap }[] = [
-  { name: 'index', label: 'الرئيسية', sf: ['house', 'house.fill'], icon: 'home' },
-  { name: 'search', label: 'البحث', sf: ['magnifyingglass', 'magnifyingglass'], icon: 'search' },
-  { name: 'mine', label: 'بلاغاتي', sf: ['tray', 'tray.fill'], icon: 'inbox' },
-  { name: 'saved', label: 'المحفوظات', sf: ['bookmark', 'bookmark.fill'], icon: 'bookmark' },
-  { name: 'settings', label: 'المزيد', sf: ['ellipsis.circle', 'ellipsis.circle.fill'], icon: 'more-horizontal' },
-];
+const ITEMS = [
+  { name: 'index', label: 'الرئيسية', icon: 'home' },
+  { name: 'search', label: 'اكتشف', icon: 'search' },
+  { name: 'mine', label: 'بلاغاتي', icon: 'inbox' },
+  { name: 'saved', label: 'المحفوظات', icon: 'bookmark' },
+  { name: 'settings', label: 'المزيد', icon: 'more-horizontal' },
+] as const;
 
-function NativeTabLayout() {
-  return (
-    <NativeTabs>
-      {TABS.map((t) => (
-        <NativeTabs.Trigger key={t.name} name={t.name}>
-          <NativeTabs.Trigger.Icon sf={{ default: t.sf[0], selected: t.sf[1] }} />
-          <NativeTabs.Trigger.Label>{t.label}</NativeTabs.Trigger.Label>
-        </NativeTabs.Trigger>
-      ))}
-    </NativeTabs>
-  );
-}
-
-function ClassicTabLayout() {
-  const colors = useColors();
-  const isDark = useColorScheme() === 'dark';
-  const isIOS = Platform.OS === 'ios';
-  const isWeb = Platform.OS === 'web';
-
-  return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.mutedForeground,
-        headerShown: false,
-        tabBarLabelStyle: { fontFamily: F.semibold, fontSize: 11 },
-        tabBarStyle: {
-          position: 'absolute',
-          backgroundColor: isIOS ? 'transparent' : colors.card,
-          borderTopWidth: isWeb ? 1 : 0,
-          borderTopColor: colors.border,
-          elevation: 0,
-          ...(isWeb ? { height: 84 } : {}),
-        },
-        tabBarBackground: () =>
-          isIOS ? (
-            <BlurView intensity={100} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-          ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.card }]} />
-          ),
-      }}
-    >
-      {TABS.map((t) => (
-        <Tabs.Screen
-          key={t.name}
-          name={t.name}
-          options={{
-            title: t.label,
-            tabBarIcon: ({ color, focused }) =>
-              isIOS ? <SymbolView name={focused ? t.sf[1] : t.sf[0]} tintColor={color as string} size={24} /> : <Feather name={t.icon} size={22} color={color as string} />,
-          }}
-        />
-      ))}
-    </Tabs>
-  );
-}
-
+/** Explicit Arabic visual order on every device, independent of system locale. */
 export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
-  return <ClassicTabLayout />;
+  const c = useColors();
+  const insets = useSafeAreaInsets();
+  return <Tabs screenOptions={{ headerShown: false }} tabBar={({ state, emitter, navigateToTab }) => (
+    <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: c.card, borderTopWidth: 1, borderColor: c.border, paddingTop: 8, paddingBottom: Math.max(insets.bottom, Platform.OS === 'web' ? 14 : 8), paddingHorizontal: 8, flexDirection: ROW }}>
+      {ITEMS.map(item => {
+        const route = state.routes.find(r => r.name === item.name);
+        if (!route) return null;
+        const active = state.routes[state.index].key === route.key;
+        return <Pressable key={item.name} accessibilityRole="tab" accessibilityLabel={item.label} accessibilityState={{ selected: active }} testID={`tab-${item.name}`} onPress={() => {
+          const event = emitter.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+          if (!active && !event.defaultPrevented) { haptic.tap(); navigateToTab(route.key); }
+        }} onLongPress={() => emitter.emit({ type: 'tabLongPress', target: route.key })} style={{ flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: 16, backgroundColor: active ? c.turquoiseSoft : 'transparent' }}>
+          <Feather name={item.icon} size={21} color={active ? c.turquoise : c.mutedForeground} />
+          <T size={11} w={active ? 'bold' : 'medium'} color={active ? c.turquoise : c.mutedForeground} center>{item.label}</T>
+        </Pressable>;
+      })}
+    </View>
+  )}>
+    {ITEMS.map(item => <Tabs.Screen key={item.name} name={item.name} options={{ title: item.label }} />)}
+  </Tabs>;
 }

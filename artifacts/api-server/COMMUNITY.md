@@ -31,6 +31,15 @@ The storage service must not be configured to make the private bucket publicly r
 Deleting reports cascades claims/messages/abuse rows and deletes the attached photo.
 Deleting accounts hides reports first, removes all owned photos and community data, then
 deletes the Clerk identity. Failures are explicit and retryable.
+An account-deletion barrier is committed before cleanup. All account writes acquire the
+same database advisory lock and reject this barrier, so an overlapping request cannot
+recreate data after deletion. The barrier retains only the identity provider's opaque
+user ID and deletion-request timestamp to reject unexpired sessions. Apply
+`lib/db/migrations/0001_account_deletion_guard.sql` before this API revision; include
+this minimal retention in the final privacy policy.
+If a signed upload URL is still valid when its photo is deleted, a temporary opaque
+raw-object path remains in `photo_deletions`. After the URL expires, cleanup removes
+any recreated raw bytes and this marker. Storage failures retain it for retry.
 Old replaced photos and abandoned uploads are private. The API runs cleanup on startup
 and hourly while running, with retry logging and no overlapping runs. The following command also deletes
 unattached uploads older than one day (including uploads recreated using an unexpired PUT URL):

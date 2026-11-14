@@ -2,19 +2,25 @@ import { getAuth } from "@clerk/express";
 import type { Request, RequestHandler } from "express";
 import { db, moderators, reports } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { assertAccountActive } from './mutations';
+import { validReportDate } from './reportDate';
 
 export function fail(status: number, message: string): never {
   throw Object.assign(new Error(message), { status });
 }
 export const identity = (req: Request) => getAuth(req).userId;
 export const user = (req: Request) => identity(req) ?? fail(401, "سجّل الدخول للمتابعة.");
-export const requireUser: RequestHandler = (req, _res, next) => {
+async function authenticateUser(req: Request, allowDeletionRetry = false) {
   user(req);
   if (!["GET", "HEAD"].includes(req.method) && !req.headers.authorization?.startsWith("Bearer ")) {
     const origin = req.get("origin");
     const hosts = [req.get("host"), ...(process.env.REPLIT_DOMAINS ?? "").split(","), process.env.REPLIT_EXPO_DEV_DOMAIN];
     if (!origin || !hosts.some((host) => host && origin === `https://${host}`)) fail(403, "مصدر الطلب غير مسموح.");
   }
+  if (!allowDeletionRetry) await assertAccountActive(user(req));
+}
+export const requireUser: RequestHandler = async (req, _res, next) => {
+  await authenticateUser(req, req.method === 'DELETE' && req.path === '/me');
   next();
 };
 export async function isModerator(id: string) {
@@ -22,7 +28,7 @@ export async function isModerator(id: string) {
 }
 export const requireModerator: RequestHandler = async (req, _res, next) => {
   // Reuse authentication and cookie-origin checks before privileged mutations.
-  requireUser(req, _res, () => {});
+  await authenticateUser(req);
   if (!await isModerator(user(req))) fail(403, "هذه الصفحة للمشرفين فقط.");
   next();
 };
@@ -41,6 +47,6 @@ export function privateSafe(text: string) {
   }
 }
 export function validateReport(data: { date?: string; title?: string; description?: string; city?: string; place?: string }) {
-  if (data.date && (isNaN(Date.parse(data.date)) || new Date(data.date).toISOString().slice(0, 10) !== data.date || data.date > new Date().toISOString().slice(0, 10))) fail(400, "التاريخ غير صحيح أو في المستقبل.");
+  if (data.date && !validReportDate(data.date)) fail(400, "التاريخ غير صحيح أو في المستقبل.");
   for (const value of [data.title, data.description, data.city, data.place]) if (value) privateSafe(value);
 }
