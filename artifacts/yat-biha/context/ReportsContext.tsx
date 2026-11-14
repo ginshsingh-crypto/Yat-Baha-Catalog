@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { IS_PREVIEW } from '@/config/runtime';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@clerk/expo';
 import { useQueryClient } from '@tanstack/react-query';
@@ -58,7 +59,7 @@ export const DEMO_REPORTS: Report[] = [
   { id: 'demo-5', type: 'found', title: 'ساعة يد فضية', category: 'jewelry', description: 'وُجدت عند مغاسل الوضوء. سُلّمت لإدارة المسجد.', city: 'المدينة المنورة', place: 'ساحات المسجد - الجهة الجنوبية', date: d(1), status: 'open', createdAt: 5, updatedAt: 5, demo: true },
   { id: 'demo-6', type: 'lost', title: 'قطة شيرازية رمادية', category: 'pet', description: 'هادئة وتستجيب للنداء، ترتدي طوقاً أحمر بلا بيانات.', city: 'جدة', place: 'حي الروضة - قرب الحديقة العامة', date: d(4), status: 'open', createdAt: 6, updatedAt: 6, demo: true },
   { id: 'demo-7', type: 'found', title: 'هاتف بغطاء أخضر', category: 'phone', description: 'الهاتف مقفل، وُجد على طاولة في ساحة الطعام وسُلّم لخدمة العملاء.', city: 'الرياض', place: 'ساحة الطعام - مجمع تجاري شمال الرياض', date: d(2), status: 'open', createdAt: 7, updatedAt: 7, demo: true },
-  { id: 'demo-8', type: 'lost', title: 'محفظة صغيرة سوداء', category: 'wallet', description: 'فُقدت في الطريق بين المواقف والمدخل الرئيسي.', city: 'الرياض', place: 'حديقة الملك عبدالله', date: d(1), status: 'returned', createdAt: 8, updatedAt: 8, demo: true },
+  { id: 'demo-8', type: 'lost', title: 'محفظة صغيرة سوداء', category: 'wallet', description: 'فُقدت في الطريق بين المواقف والمدخل الرئيسي.', city: 'الرياض', place: 'حديقة الملك عبدالله', date: d(1), status: IS_PREVIEW ? 'open' : 'returned', createdAt: 8, updatedAt: 8, demo: true },
 ];
 
 /** Possible match: opposite type, same category, same city, still open. Never a verification. */
@@ -68,11 +69,12 @@ export function findMatches(target: Report, all: Report[]): Report[] {
     .sort((a, b) => Math.abs(+new Date(a.date) - +new Date(target.date)) - Math.abs(+new Date(b.date) - +new Date(target.date)));
 }
 
-const K_LEGACY = 'yatbiha.reports.v1'; // v1: all reports in one entry (migrated on load)
-const K_INDEX = 'yatbiha.index.v2'; // v2: ordered array of report ids
-const K_REC = 'yatbiha.report.v2.'; // v2: one entry per report
-const K_SAVED = 'yatbiha.saved.v1';
-const K_DEMO = 'yatbiha.showDemo.v1';
+const STORAGE_PREFIX = IS_PREVIEW ? 'yatbiha.preview.' : 'yatbiha.';
+const K_LEGACY = STORAGE_PREFIX + 'reports.v1'; // v1: all reports in one entry (migrated on load)
+const K_INDEX = STORAGE_PREFIX + 'index.v2'; // v2: ordered array of report ids
+const K_REC = STORAGE_PREFIX + 'report.v2.'; // v2: one entry per report
+const K_SAVED = STORAGE_PREFIX + 'saved.v1';
+const K_DEMO = STORAGE_PREFIX + 'showDemo.v1';
 const recKey = (id: string) => K_REC + id;
 
 const WRITE_ERR = 'لم يتم الحفظ: تعذّرت الكتابة إلى ذاكرة الجهاز. قد تكون المساحة ممتلئة؛ جرّب إزالة الصورة أو حذف بلاغات قديمة.';
@@ -141,61 +143,77 @@ interface Ctx {
 const ReportsContext = createContext<Ctx | null>(null);
 
 function LocalReportsProvider({ children }: { children: React.ReactNode }) {
-  const [mine, setMine] = useState<Report[]>([]);
-  const [saved, setSaved] = useState<string[]>([]);
-  const [showDemo, setShowDemoState] = useState<boolean>(false);
+  const [mine, setMineState] = useState<Report[]>([]);
+  const [saved, setSavedState] = useState<string[]>([]);
+  const mineRef = useRef<Report[]>([]);
+  const savedRef = useRef<string[]>([]);
+  const pending = useRef(Promise.resolve());
+  const enqueue = useCallback(<Result,>(operation: () => Promise<Result>): Promise<Result> => {
+    const result = pending.current.then(operation);
+    pending.current = result.then(() => undefined, () => undefined);
+    return result;
+  }, []);
+  const setMine = useCallback((reports: Report[]) => {
+    mineRef.current = reports;
+    setMineState(reports);
+  }, []);
+  const setSaved = useCallback((ids: string[]) => {
+    savedRef.current = ids;
+    setSavedState(ids);
+  }, []);
+  const [showDemo, setShowDemoState] = useState<boolean>(IS_PREVIEW);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [nonce, setNonce] = useState<number>(0);
 
   useEffect(() => {
     let alive = true;
-    (async () => {
+    void enqueue(async () => {
       setLoading(true);
       setLoadError(null);
       try {
         const { reports, warning } = await loadReports();
         const [s, dm] = await AsyncStorage.multiGet([K_SAVED, K_DEMO]).then((x) => x.map((p) => p[1]));
         if (!alive) return;
-        setMine(reports);
+        setMine(reports.map((report) => ({ ...report, local: true, isOwner: true })));
         setSaved(s ? (JSON.parse(s) as string[]) : []);
-        setShowDemoState(dm === null ? false : dm === '1');
+        setShowDemoState(dm === null ? IS_PREVIEW : dm === '1');
         if (warning) setLoadError(warning);
       } catch {
         if (alive) setLoadError('تعذّر قراءة البيانات المحفوظة على هذا الجهاز.');
       } finally {
         if (alive) setLoading(false);
       }
-    })();
+    });
     return () => {
       alive = false;
     };
-  }, [nonce]);
+  }, [nonce, enqueue, setMine, setSaved]);
 
   const createReport = useCallback(
-    async (input: ReportInput) => {
+    (input: ReportInput) => enqueue(async () => {
       const now = Date.now();
-      const r: Report = { ...input, id: now.toString() + Math.random().toString(36).slice(2, 9), status: 'open', createdAt: now, updatedAt: now };
+      const r: Report = { ...input, id: now.toString() + Math.random().toString(36).slice(2, 9), status: 'open', createdAt: now, updatedAt: now, local: true, isOwner: true };
       try {
         await AsyncStorage.setItem(recKey(r.id), JSON.stringify(r));
       } catch {
         throw new Error(WRITE_ERR);
       }
       try {
-        await writeIndex([r.id, ...mine.map((m) => m.id)]);
+        await writeIndex([r.id, ...mineRef.current.map((m) => m.id)]);
       } catch (e) {
         await AsyncStorage.removeItem(recKey(r.id)).catch(() => undefined); // orphan cleanup only; the index error is still thrown
         throw e;
       }
-      setMine([r, ...mine]);
+      setMine([r, ...mineRef.current]);
       return r;
-    },
-    [mine],
+    }),
+    [enqueue, setMine],
   );
 
   const updateReport = useCallback(
-    async (id: string, input: Partial<Report>) => {
-      const cur = mine.find((r) => r.id === id);
+    (id: string, input: Partial<Report>) => enqueue(async () => {
+      const cur = mineRef.current.find((r) => r.id === id);
       if (!cur) throw new Error('البلاغ غير موجود على هذا الجهاز.');
       const next: Report = { ...cur, ...input, id, updatedAt: Date.now() };
       try {
@@ -203,14 +221,14 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
       } catch {
         throw new Error(WRITE_ERR);
       }
-      setMine(mine.map((r) => (r.id === id ? next : r)));
-    },
-    [mine],
+      setMine(mineRef.current.map((r) => (r.id === id ? next : r)));
+    }),
+    [enqueue, setMine],
   );
 
   const deleteReport = useCallback(
-    async (id: string) => {
-      const rest = mine.filter((r) => r.id !== id);
+    (id: string) => enqueue(async () => {
+      const rest = mineRef.current.filter((r) => r.id !== id);
       await writeIndex(rest.map((r) => r.id));
       setMine(rest);
       const problems: string[] = [];
@@ -219,8 +237,8 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
       } catch {
         problems.push('بيانات البلاغ');
       }
-      if (saved.includes(id)) {
-        const ns = saved.filter((x) => x !== id);
+      if (savedRef.current.includes(id)) {
+        const ns = savedRef.current.filter((x) => x !== id);
         try {
           await AsyncStorage.setItem(K_SAVED, JSON.stringify(ns));
           setSaved(ns);
@@ -229,33 +247,33 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
         }
       }
       if (problems.length) throw new Error(`أُزيل البلاغ من القائمة، لكن تعذّر حذف ${problems.join(' و')} من ذاكرة الجهاز.`);
-    },
-    [mine, saved],
+    }),
+    [enqueue, setMine, setSaved],
   );
 
   const toggleSaved = useCallback(
-    async (id: string) => {
-      const ns = saved.includes(id) ? saved.filter((x) => x !== id) : [id, ...saved];
+    (id: string) => enqueue(async () => {
+      const ns = savedRef.current.includes(id) ? savedRef.current.filter((x) => x !== id) : [id, ...savedRef.current];
       try {
         await AsyncStorage.setItem(K_SAVED, JSON.stringify(ns));
       } catch {
         throw new Error('تعذّر تحديث المحفوظات على الجهاز.');
       }
       setSaved(ns);
-    },
-    [saved],
+    }),
+    [enqueue, setSaved],
   );
 
-  const setShowDemo = useCallback(async (v: boolean) => {
+  const setShowDemo = useCallback((v: boolean) => enqueue(async () => {
     try {
       await AsyncStorage.setItem(K_DEMO, v ? '1' : '0');
     } catch {
       throw new Error('تعذّر حفظ الإعداد.');
     }
     setShowDemoState(v);
-  }, []);
+  }), [enqueue]);
 
-  const clearAll = useCallback(async () => {
+  const clearAll = useCallback(() => enqueue(async () => {
     try {
       const keys = await AsyncStorage.getAllKeys();
       const recs = keys.filter((k) => k.startsWith(K_REC));
@@ -265,10 +283,10 @@ function LocalReportsProvider({ children }: { children: React.ReactNode }) {
     }
     setMine([]);
     setSaved([]);
-  }, []);
+  }), [enqueue, setMine, setSaved]);
 
   const all = useMemo(() => [...mine, ...(showDemo ? DEMO_REPORTS : [])], [mine, showDemo]);
-  const getReport = useCallback((id: string) => mine.find((r) => r.id === id) ?? DEMO_REPORTS.find((r) => r.id === id), [mine]);
+  const getReport = useCallback((id: string) => mine.find((r) => r.id === id) ?? (showDemo ? DEMO_REPORTS.find((r) => r.id === id) : undefined), [mine, showDemo]);
 
   const value = useMemo<Ctx>(
     () => ({ loading, loadError, retryLoad: () => setNonce((n) => n + 1), mine, all, saved, showDemo, setShowDemo, getReport, createReport, updateReport, deleteReport, toggleSaved, clearAll }),
@@ -284,7 +302,7 @@ export function useReports() {
 }
 
 export function ReportsProvider({ children }: { children: React.ReactNode }) {
-  return <LocalReportsProvider><CommunityReportsProvider>{children}</CommunityReportsProvider></LocalReportsProvider>;
+  return <LocalReportsProvider>{IS_PREVIEW ? children : <CommunityReportsProvider>{children}</CommunityReportsProvider>}</LocalReportsProvider>;
 }
 
 function CommunityReportsProvider({ children }: { children: React.ReactNode }) {

@@ -1,4 +1,5 @@
 import React from 'react';
+import { IS_PREVIEW } from '@/config/runtime';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -26,7 +27,7 @@ export default function Home() {
               يأتِ بها
             </T>
             <T size={11} color={c.mutedForeground} style={{ lineHeight: 16 }}>
-              رفيقك للمفقودات في الحي والمدينة
+              من الحاجة إلى الوصول
             </T>
           </View>
         </View>
@@ -67,7 +68,7 @@ export default function Home() {
 
       <View style={{ flexDirection: ROW, gap: 10, marginTop: 14 }}>
         {[
-          { n: open.filter((r) => !r.demo).length, l: 'بلاغ مفتوح', col: c.turquoise },
+          { n: open.filter((r) => !r.demo).length, l: IS_PREVIEW ? 'تجربة مفتوحة' : 'بلاغ مفتوح', col: c.turquoise },
           { n: mine.length, l: 'بلاغاتك', col: c.magenta },
           { n: all.filter((r) => !r.demo && r.status === 'returned').length, l: 'مُعاد يدوياً', col: c.success },
         ].map((s) => (
@@ -114,7 +115,7 @@ export default function Home() {
       </View>
 
       <T size={12} color={c.mutedForeground} center style={{ marginTop: 18 }}>
-        البلاغات المشتركة يراها الجميع. «مثال توضيحي» للعرض فقط، والبلاغات القديمة تبقى محلية حتى تختار نشر نسخة.
+        {IS_PREVIEW ? 'جرّب إنشاء بلاغ والبحث وحفظ النتائج. الأمثلة التوضيحية خيالية وبيانات المعاينة خاصة بجهازك.' : 'البلاغات المشتركة يراها الجميع. «مثال توضيحي» للعرض فقط، والبلاغات القديمة تبقى محلية حتى تختار نشر نسخة.'}
       </T>
     </TabScreen>
   );

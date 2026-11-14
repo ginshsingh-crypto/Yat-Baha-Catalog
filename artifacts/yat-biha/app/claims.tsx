@@ -1,3 +1,5 @@
+import { IS_PREVIEW } from '@/config/runtime';
+import { PreviewNotice } from '@/components/PreviewNotice';
 import React, { useState } from 'react';
 import { View, TextInput } from 'react-native';
 import { useAuth } from '@clerk/expo';
@@ -10,6 +12,10 @@ import { useColors } from '@/hooks/useColors';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 
 export default function ClaimsScreen() {
+  return IS_PREVIEW ? <PreviewNotice /> : <CommunityClaimsScreen />;
+}
+
+function CommunityClaimsScreen() {
   const { isSignedIn, userId } = useAuth();
   const query = useListClaims({ query: { enabled: !!isSignedIn, queryKey: ['/api/claims', userId], refetchInterval: 15000 } });
   if (!isSignedIn) return <Redirect href="/sign-in" />;

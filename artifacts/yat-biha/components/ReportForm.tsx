@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { IS_PREVIEW } from '@/config/runtime';
 import { Alert, Linking, Platform, Pressable, TextInput, View, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -205,7 +206,7 @@ export function ReportForm({ initial, submitLabel, onSubmit, localOnly = false }
       ) : null}
       <Button testID="submit" label={submitLabel} icon="check" onPress={submit} loading={saving} style={{ marginTop: 20 }} />
       <T size={12} color={c.mutedForeground} center style={{ marginTop: 10 }}>
-        {localOnly ? 'يُحفظ هذا البلاغ القديم على جهازك فقط حتى تختار نشر نسخة.' : 'بالنشر يصبح الوصف والمكان التقريبي والصورة مرئيين للجميع. لا تنشر وثائق أو وجوهاً أو بيانات اتصال. نزيل بيانات موقع الصورة.'}
+        {IS_PREVIEW ? 'يُحفظ البلاغ وصورته على هذا الجهاز لتجربة التطبيق. استخدم بيانات تجريبية.' : localOnly ? 'يُحفظ هذا البلاغ القديم على جهازك فقط حتى تختار نشر نسخة.' : 'بالنشر يصبح الوصف والمكان التقريبي والصورة مرئيين للجميع. لا تنشر وثائق أو وجوهاً أو بيانات اتصال. نزيل بيانات موقع الصورة.'}
       </T>
     </KeyboardAwareScrollViewCompat>
   );

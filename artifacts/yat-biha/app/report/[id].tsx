@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { IS_PREVIEW } from '@/config/runtime';
 import { Alert, Platform, ScrollView, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -140,10 +141,11 @@ export default function ReportDetails() {
           </T>
         </View>
       ) : null}
-      {r.local ? <View style={{ marginTop: 16, gap: 10 }}>
+      {r.local && publishLocal ? <View style={{ marginTop: 16, gap: 10 }}>
         <T size={13}>بلاغ قديم على هذا الجهاز فقط. نشر نسخة يجعله وصورته مرئيين للجميع، ولا يحذف الأصل المحلي.</T>
         <Button label="نشر نسخة للمجتمع" loading={busy} onPress={() => run(async () => { const published = await publishLocal!(r.id); router.replace(`/report/${published.id}`); })} />
       </View> : null}
+      {IS_PREVIEW && r.local ? <T size={13} color={c.mutedForeground} style={{ marginTop: 16 }}>بلاغ تجريبي محفوظ على هذا الجهاز فقط.</T> : null}
       <CommunityActions report={r} />
 
       {err ? (
@@ -177,7 +179,7 @@ export default function ReportDetails() {
         </T>
       </View>
       {matches.length === 0 ? (
-        <Empty icon="radio" title="لا مطابقات حالياً" body="نقارن البلاغات المشتركة دورياً. الأمثلة والبلاغات المحلية تُقارن في مجموعاتها المنفصلة فقط." />
+        <Empty icon="radio" title="لا مطابقات حالياً" body={IS_PREVIEW ? "أنشئ بلاغ فقدان وبلاغ عثور من الفئة والمدينة نفسيهما لتجربة المطابقة. تُقارن الأمثلة التوضيحية مع بعضها." : "نقارن البلاغات المشتركة دورياً. الأمثلة والبلاغات المحلية تُقارن في مجموعاتها المنفصلة فقط."} />
       ) : (
         matches.map((m, i) => <ReportCard key={m.id} report={m} index={i} />)
       )}

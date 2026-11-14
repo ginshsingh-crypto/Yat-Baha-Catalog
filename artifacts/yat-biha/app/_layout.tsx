@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { IS_PREVIEW } from '@/config/runtime';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -15,11 +16,11 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { ReportsProvider } from '@/context/ReportsContext';
 import { useColors } from '@/hooks/useColors';
-import { F } from '@/components/ui';
+import { F, T } from '@/components/ui';
 import { ClerkProvider, ClerkLoaded, useAuth } from '@clerk/expo';
 import { tokenCache } from '@clerk/expo/token-cache';
 import { setBaseUrl, setAuthTokenGetter } from '@workspace/api-client-react';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 
 if (Platform.OS !== 'web' && process.env.EXPO_PUBLIC_DOMAIN) setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
 
@@ -76,22 +77,37 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return null;
 
   return (
-    <SafeAreaProvider>
+    <View style={{ flex: 1, backgroundColor: '#EEF6F7', alignItems: 'center' }}>
+    <SafeAreaProvider style={{ width: '100%', flex: 1, ...(Platform.OS === 'web' ? { maxWidth: 720, borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#DDE8EA' } : {}) }}>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
-          <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!} tokenCache={tokenCache} proxyUrl={process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined}>
-          <ClerkLoaded>
-          <AuthenticatedReports>
-            <GestureHandlerRootView>
+          <AppProviders>
+            <GestureHandlerRootView style={{ flex: 1 }}>
               <KeyboardProvider>
                 <RootLayoutNav />
               </KeyboardProvider>
             </GestureHandlerRootView>
-          </AuthenticatedReports>
-          </ClerkLoaded>
-          </ClerkProvider>
+          </AppProviders>
         </QueryClientProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
+    </View>
+  );
+}
+
+function AppProviders({ children }: { children: React.ReactNode }) {
+  if (IS_PREVIEW) return <ReportsProvider>{children}</ReportsProvider>;
+  if (!process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    return <View style={{ flex: 1, justifyContent: 'center', padding: 24, gap: 12 }}>
+      <T w="bold" size={24}>الخدمة قيد الإعداد</T>
+      <T>لم يكتمل إعداد تسجيل الدخول لهذه النسخة. يمكنك تجربة التطبيق من رابط المعاينة.</T>
+    </View>;
+  }
+  return (
+    <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!} tokenCache={tokenCache} proxyUrl={process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined}>
+      <ClerkLoaded>
+        <AuthenticatedReports>{children}</AuthenticatedReports>
+      </ClerkLoaded>
+    </ClerkProvider>
   );
 }

@@ -1,0 +1,54 @@
+name: App preview
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install mobile app dependencies
+        run: pnpm --filter '@workspace/yat-biha...' install --frozen-lockfile --ignore-scripts
+      - name: Check mobile app types
+        run: |
+          pnpm exec tsc --build lib/api-client-react
+          pnpm --filter @workspace/yat-biha run typecheck
+      - name: Build GitHub Pages preview
+        run: pnpm run preview:pages
+      - name: Upload preview
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: artifacts/yat-biha/dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy preview
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,3 +1,5 @@
+import { IS_PREVIEW } from '@/config/runtime';
+import { PreviewNotice } from '@/components/PreviewNotice';
 import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useAuth } from '@clerk/expo';
@@ -7,6 +9,10 @@ import { Button, ErrorBox, T } from '@/components/ui';
 import { useColors } from '@/hooks/useColors';
 
 export default function Moderation() {
+  return IS_PREVIEW ? <PreviewNotice /> : <CommunityModeration />;
+}
+
+function CommunityModeration() {
   const { isSignedIn, userId } = useAuth();
   const c = useColors();
   const account = useGetCommunityAccount({ query: { enabled: !!isSignedIn, queryKey: ['/api/me', userId] } });

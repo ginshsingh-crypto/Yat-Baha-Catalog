@@ -1,3 +1,5 @@
+import { IS_PREVIEW } from '@/config/runtime';
+import { PreviewNotice } from '@/components/PreviewNotice';
 import React, { useState } from 'react';
 import { TextInput, View, Platform } from 'react-native';
 import { useAuth, useSignIn, useSignUp, useSSO } from '@clerk/expo';
@@ -11,6 +13,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 WebBrowser.maybeCompleteAuthSession();
 export default function SignIn() {
+  return IS_PREVIEW ? <PreviewNotice /> : <CommunitySignIn />;
+}
+
+function CommunitySignIn() {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();

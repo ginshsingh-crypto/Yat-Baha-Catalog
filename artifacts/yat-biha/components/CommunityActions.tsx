@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { IS_PREVIEW } from '@/config/runtime';
 import { TextInput, View } from 'react-native';
 import { useAuth } from '@clerk/expo';
 import { router } from 'expo-router';
@@ -8,6 +9,11 @@ import { useColors } from '@/hooks/useColors';
 import { T, Button, ErrorBox, F } from './ui';
 
 export function CommunityActions({ report }: { report: Report }) {
+  if (IS_PREVIEW || report.demo || report.local) return null;
+  return <SharedReportActions report={report} />;
+}
+
+function SharedReportActions({ report }: { report: Report }) {
   const c = useColors();
   const { isSignedIn } = useAuth();
   const [mode, setMode] = useState<'claim' | 'abuse' | null>(null);

@@ -27,6 +27,8 @@ export const haptic = {
   error: () => Platform.OS !== 'web' && Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {}),
 };
 
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 type TProps = TextProps & { w?: keyof typeof F; size?: number; color?: string; center?: boolean };
 export function T({ w = 'regular', size = 15, color, center, style, ...rest }: TProps) {
   const c = useColors();
@@ -45,7 +47,10 @@ export function Press({ onPress, style, children, disabled, testID, haptics = tr
   const s = useSharedValue(1);
   const a = useAnimatedStyle(() => ({ transform: [{ scale: s.value }] }));
   return (
-    <Pressable
+    <AnimatedPressable
+      style={[a, style, disabled && { opacity: 0.45 }]}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
       testID={testID}
       disabled={disabled}
       onPressIn={() => (s.value = withSpring(0.965, { damping: 18, stiffness: 400 }))}
@@ -55,8 +60,8 @@ export function Press({ onPress, style, children, disabled, testID, haptics = tr
         onPress?.();
       }}
     >
-      <Animated.View style={[a, style, disabled && { opacity: 0.45 }]}>{children}</Animated.View>
-    </Pressable>
+      {children}
+    </AnimatedPressable>
   );
 }
 
